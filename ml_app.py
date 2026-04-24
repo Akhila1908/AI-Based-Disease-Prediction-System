@@ -92,8 +92,8 @@ def preprocess_symptoms(user_input, all_symptoms):
 # Groq LLM with direct API call
 # ============================================
 
-def get_health_info_from_groq(disease_name, symptoms_list, confidence):
-    """Get health information using direct Groq API call with better formatting"""
+def get_disease_overview(disease_name, symptoms_list, confidence):
+    """Get disease overview (about, common symptoms, match, severity)"""
     
     api_key = None
     try:
@@ -113,49 +113,41 @@ def get_health_info_from_groq(disease_name, symptoms_list, confidence):
         "Content-Type": "application/json"
     }
     
-    prompt = f"""You are a medical information assistant. Provide detailed health information for {disease_name}.
+    prompt = f"""Provide detailed information about {disease_name}.
 
 User symptoms: {', '.join(symptoms_list)}
-Confidence: {confidence:.1f}%
 
-Provide the response in EXACTLY this format with clear sections and bullet points:
+Provide EXACTLY this format:
 
-**About the condition**
-[1-2 sentences explaining what {disease_name} is]
+ABOUT THE CONDITION:
+[2-3 sentences explaining what {disease_name} is]
 
-**Common symptoms**
-- Symptom 1
-- Symptom 2
-- Symptom 3
-- Symptom 4
-- Symptom 5
+COMMON SYMPTOMS:
+- [symptom 1]
+- [symptom 2]
+- [symptom 3]
+- [symptom 4]
+- [symptom 5]
 
-**Do the given symptoms match?**
-[Yes/No] - [1 sentence explanation]
+DO THE GIVEN SYMPTOMS MATCH?
+[Yes/No] - [brief explanation]
 
-**Is it mild or serious?**
+IS IT MILD OR SERIOUS?
 [1 sentence explaining severity]
 
-**General home care**
-- Home care tip 1
-- Home care tip 2
-- Home care tip 3
-- Home care tip 4
-- Home care tip 5
+WHEN TO CONSULT A DOCTOR:
+- [warning sign 1]
+- [warning sign 2]
+- [warning sign 3]
 
-**When to consult a doctor**
-- Warning sign 1
-- Warning sign 2
-- Warning sign 3
-
-Keep responses practical, specific to {disease_name}, and easy to read. Use simple language. Never give medical advice."""
+Keep responses clear and easy to read. Use simple language."""
 
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "system",
-                "content": f"You are a medical information assistant. Provide clear, organized health information about {disease_name}. Use bullet points with dashes. Never give medical advice."
+                "content": f"You are a medical information assistant. Provide clear, organized health information about {disease_name}. Use the exact format requested. Never give medical advice."
             },
             {
                 "role": "user",
@@ -163,7 +155,7 @@ Keep responses practical, specific to {disease_name}, and easy to read. Use simp
             }
         ],
         "temperature": 0.3,
-        "max_tokens": 1000
+        "max_tokens": 600
     }
     
     try:
@@ -171,8 +163,251 @@ Keep responses practical, specific to {disease_name}, and easy to read. Use simp
         
         if response.status_code == 200:
             result = response.json()
-            content = result['choices'][0]['message']['content']
-            return content
+            return result['choices'][0]['message']['content']
+        else:
+            return None
+            
+    except Exception as e:
+        return None
+
+def get_home_remedies(disease_name):
+    """Get home remedies for the disease"""
+    
+    api_key = None
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY")
+    except:
+        pass
+    
+    if not api_key:
+        return None
+    
+    import requests
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"""List 5 home remedies for {disease_name}.
+
+Provide EXACTLY this format:
+
+🌿 HOME REMEDIES FOR {disease_name.upper()}:
+• [remedy 1]
+• [remedy 2]
+• [remedy 3]
+• [remedy 4]
+• [remedy 5]
+
+Keep each remedy short and practical. Use a new line for each remedy."""
+
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": f"List 5 simple home remedies for {disease_name}. Use bullet points with •. Each remedy on new line."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 300
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        else:
+            return None
+            
+    except Exception as e:
+        return None
+
+def get_diet_recommendations(disease_name):
+    """Get diet recommendations for the disease"""
+    
+    api_key = None
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY")
+    except:
+        pass
+    
+    if not api_key:
+        return None
+    
+    import requests
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"""List 5 diet recommendations for someone with {disease_name}.
+
+Provide EXACTLY this format:
+
+🥗 DIET RECOMMENDATIONS:
+• [recommendation 1]
+• [recommendation 2]
+• [recommendation 3]
+• [recommendation 4]
+• [recommendation 5]
+
+Keep each recommendation practical and specific."""
+
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": f"List 5 diet recommendations for {disease_name}. Use bullet points with •. Each on new line."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 300
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        else:
+            return None
+            
+    except Exception as e:
+        return None
+
+def get_prevention_tips(disease_name):
+    """Get prevention tips for the disease"""
+    
+    api_key = None
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY")
+    except:
+        pass
+    
+    if not api_key:
+        return None
+    
+    import requests
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"""List 5 prevention tips to avoid {disease_name}.
+
+Provide EXACTLY this format:
+
+🛡️ PREVENTION TIPS:
+• [tip 1]
+• [tip 2]
+• [tip 3]
+• [tip 4]
+• [tip 5]
+
+Keep each tip practical and specific."""
+
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": f"List 5 prevention tips for {disease_name}. Use bullet points with •. Each on new line."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 300
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        else:
+            return None
+            
+    except Exception as e:
+        return None
+
+def get_exercise_guidelines(disease_name):
+    """Get exercise guidelines for the disease"""
+    
+    api_key = None
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY")
+    except:
+        pass
+    
+    if not api_key:
+        return None
+    
+    import requests
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"""Provide exercise guidelines for someone with {disease_name}.
+
+Provide EXACTLY this format:
+
+🏃‍♂️ EXERCISE GUIDELINES:
+[2-3 sentences about safe exercises for {disease_name}]
+
+Keep it practical and specific."""
+
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": f"Provide exercise guidelines for {disease_name}. Keep it practical."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 200
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content']
         else:
             return None
             
@@ -215,7 +450,7 @@ with st.sidebar:
     
     if groq_key_available:
         st.success("✅ Groq AI Ready")
-        st.caption("Providing detailed health information")
+        st.caption("Click sections below for details")
     else:
         st.warning("⚠️ Groq AI not configured")
     
@@ -223,7 +458,7 @@ with st.sidebar:
     st.write("### 📝 Instructions")
     st.write("1. Enter symptoms (comma separated)")
     st.write("2. Click Predict")
-    st.write("3. Get detailed health information")
+    st.write("3. Click on sections to view details")
 
 st.write("### Enter Your Symptoms")
 symptoms_input = st.text_area(
@@ -259,7 +494,7 @@ if predict_clicked:
                 
                 # Display result
                 st.success(f"### 🎯 Predicted: {predicted_disease}")
-                st.caption(f"User symptoms: {', '.join(symptom_list)}")
+                st.caption(f"**User symptoms:** {', '.join(symptom_list)}")
                 
                 # Show confidence with color
                 if confidence >= 80:
@@ -271,27 +506,86 @@ if predict_clicked:
                 
                 st.markdown("---")
                 
-                # Get health information from Groq if available
                 if groq_key_available:
-                    with st.spinner(f"🤖 Getting detailed health information for {predicted_disease}..."):
-                        info = get_health_info_from_groq(predicted_disease, symptom_list, confidence)
-                        if info:
-                            # Display the formatted information
-                            st.markdown(info)
+                    # SECTION 1: Disease Overview (always shown, not expandable)
+                    with st.spinner(f"Loading information about {predicted_disease}..."):
+                        overview = get_disease_overview(predicted_disease, symptom_list, confidence)
+                        if overview:
+                            # Parse and display overview sections
+                            lines = overview.split('\n')
+                            current_section = ""
+                            
+                            for line in lines:
+                                line = line.strip()
+                                if line:
+                                    if line.startswith('ABOUT THE CONDITION:'):
+                                        st.markdown("---")
+                                        st.markdown("### 📖 About This Condition")
+                                    elif line.startswith('COMMON SYMPTOMS:'):
+                                        st.markdown("### 🔍 Common Symptoms")
+                                    elif line.startswith('DO THE GIVEN SYMPTOMS MATCH?'):
+                                        st.markdown("### ✅ Symptom Match")
+                                    elif line.startswith('IS IT MILD OR SERIOUS?'):
+                                        st.markdown("### 📊 Severity")
+                                    elif line.startswith('WHEN TO CONSULT A DOCTOR:'):
+                                        st.markdown("### 🏥 When to See a Doctor")
+                                    elif line.startswith('-') or line.startswith('•'):
+                                        st.markdown(line)
+                                    elif line and not line.startswith('```'):
+                                        if not line.startswith('ABOUT') and not line.startswith('COMMON') and not line.startswith('DO') and not line.startswith('IS') and not line.startswith('WHEN'):
+                                            st.markdown(line)
+                            st.markdown("---")
                         else:
-                            st.warning("Could not fetch information. Please try again.")
-                            
-                            # Fallback - show common symptoms from training data
-                            disease_data = df[df['prognosis'] == predicted_disease]
-                            common_symptoms = []
-                            for sym in ALL_SYMPTOMS[:20]:
-                                if len(disease_data) > 0 and disease_data[sym].mean() > 0.5:
-                                    common_symptoms.append(sym.replace('_', ' ').title())
-                            
-                            if common_symptoms:
-                                st.markdown("**Common symptoms (from training data):**")
-                                for sym in common_symptoms[:10]:
-                                    st.markdown(f"- {sym}")
+                            st.warning("Could not load disease overview")
+                    
+                    # SECTION 2: Home Remedies (Expandable)
+                    with st.expander("🌿 Home Remedies", expanded=False):
+                        with st.spinner("Loading home remedies..."):
+                            remedies = get_home_remedies(predicted_disease)
+                            if remedies:
+                                for line in remedies.split('\n'):
+                                    line = line.strip()
+                                    if line:
+                                        st.markdown(line)
+                            else:
+                                st.info("Home remedies information not available")
+                    
+                    # SECTION 3: Diet Recommendations (Expandable)
+                    with st.expander("🥗 Diet Recommendations", expanded=False):
+                        with st.spinner("Loading diet recommendations..."):
+                            diet = get_diet_recommendations(predicted_disease)
+                            if diet:
+                                for line in diet.split('\n'):
+                                    line = line.strip()
+                                    if line:
+                                        st.markdown(line)
+                            else:
+                                st.info("Diet recommendations not available")
+                    
+                    # SECTION 4: Prevention Tips (Expandable)
+                    with st.expander("🛡️ Prevention Tips", expanded=False):
+                        with st.spinner("Loading prevention tips..."):
+                            prevention = get_prevention_tips(predicted_disease)
+                            if prevention:
+                                for line in prevention.split('\n'):
+                                    line = line.strip()
+                                    if line:
+                                        st.markdown(line)
+                            else:
+                                st.info("Prevention tips not available")
+                    
+                    # SECTION 5: Exercise Guidelines (Expandable)
+                    with st.expander("🏃‍♂️ Exercise Guidelines", expanded=False):
+                        with st.spinner("Loading exercise guidelines..."):
+                            exercise = get_exercise_guidelines(predicted_disease)
+                            if exercise:
+                                for line in exercise.split('\n'):
+                                    line = line.strip()
+                                    if line:
+                                        st.markdown(line)
+                            else:
+                                st.info("Exercise guidelines not available")
+                
                 else:
                     st.info("💡 **Groq AI not available.** Add your GROQ_API_KEY to get detailed health information.")
                     
@@ -303,7 +597,7 @@ if predict_clicked:
                             common_symptoms.append(sym.replace('_', ' ').title())
                     
                     if common_symptoms:
-                        st.markdown("**Common symptoms (from training data):**")
+                        st.markdown("### 📋 Common Symptoms (from training data)")
                         for sym in common_symptoms[:10]:
                             st.markdown(f"- {sym}")
                 
