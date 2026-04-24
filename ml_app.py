@@ -1,72 +1,24 @@
+# ============================================
+# MUST BE FIRST - Streamlit page config
+# ============================================
 import streamlit as st
+st.set_page_config(page_title="Disease Prediction AI", layout="centered")
+
+# ============================================
+# Now import other libraries
+# ============================================
 import pandas as pd
 import numpy as np
 import joblib
-import pickle
 from pathlib import Path
-import os
+import warnings
+warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
-@st.cache_resource
-def load_or_train_model():
-    """Load model if exists, otherwise train it"""
-    model_path = BASE_DIR / "disease_model.joblib"
-    encoder_path = BASE_DIR / "label_encoder.joblib"
-    
-    # Try to load existing model
-    if model_path.exists() and encoder_path.exists():
-        try:
-            model = joblib.load(model_path)
-            le = joblib.load(encoder_path)
-            st.success("✅ Model loaded from file")
-            return model, le
-        except Exception as e:
-            st.warning(f"Could not load existing model: {e}")
-            st.info("Training new model...")
-    
-    # Train new model
-    with st.spinner("Training model (this will take a minute)..."):
-        try:
-            # Load data
-            df = pd.read_csv(BASE_DIR / 'Training.csv')
-            df = df.drop(columns=['Unnamed: 133'], errors='ignore')
-            
-            X = df.drop('prognosis', axis=1)
-            y = df['prognosis']
-            
-            from sklearn.preprocessing import LabelEncoder
-            from sklearn.ensemble import RandomForestClassifier
-            from sklearn.impute import SimpleImputer
-            from sklearn.pipeline import Pipeline
-            
-            le = LabelEncoder()
-            y_encoded = le.fit_transform(y)
-            
-            pipeline = Pipeline([
-                ('imputer', SimpleImputer(strategy='mean')),
-                ('classifier', RandomForestClassifier(n_estimators=200, random_state=42))
-            ])
-            
-            pipeline.fit(X, y_encoded)
-            
-            # Save models
-            joblib.dump(pipeline, model_path)
-            joblib.dump(le, encoder_path)
-            
-            st.success("✅ Model trained and saved successfully!")
-            return pipeline, le
-            
-        except Exception as e:
-            st.error(f"Training failed: {str(e)}")
-            return None, None
-
-# Load or train model
-model, label_encoder = load_or_train_model()
-
-# -------------------------------------------------
-# Full symptom list (must match training)
-# -------------------------------------------------
+# ============================================
+# Full symptom list (132 symptoms)
+# ============================================
 ALL_SYMPTOMS = [
     'itching','skin_rash','nodal_skin_eruptions','continuous_sneezing','shivering',
     'chills','joint_pain','stomach_pain','acidity','ulcers_on_tongue',
@@ -103,7 +55,9 @@ ALL_SYMPTOMS = [
     'inflammatory_nails','blister','red_sore_around_nose','yellow_crust_ooze'
 ]
 
-# Disease descriptions dictionary (same as your original)
+# ============================================
+# Disease information
+# ============================================
 DISEASE_INFO = {
     "Fungal infection": {"severity": "Mild to Moderate", "remedies": "Keep area dry, use antifungal cream, maintain hygiene"},
     "Allergy": {"severity": "Mild", "remedies": "Avoid allergens, take antihistamines, use cold compress"},
@@ -148,16 +102,80 @@ DISEASE_INFO = {
     "Impetigo": {"severity": "Mild", "remedies": "Antibiotic cream, keep area clean"},
 }
 
+# ============================================
+# Load or train model
+# ============================================
+@st.cache_resource
+def load_or_train_model():
+    """Load model if exists, otherwise train it"""
+    model_path = BASE_DIR / "disease_model.joblib"
+    encoder_path = BASE_DIR / "label_encoder.joblib"
+    
+    # Try to load existing model
+    if model_path.exists() and encoder_path.exists():
+        try:
+            model = joblib.load(model_path)
+            le = joblib.load(encoder_path)
+            return model, le
+        except Exception as e:
+            st.warning(f"Could not load existing model: {e}")
+    
+    # Train new model (only if Training.csv exists)
+    csv_path = BASE_DIR / 'Training.csv'
+    if not csv_path.exists():
+        st.error("❌ Training.csv not found! Please upload the dataset.")
+        return None, None
+    
+    with st.spinner("🔄 Training model (this may take 1-2 minutes)..."):
+        try:
+            # Load data
+            df = pd.read_csv(csv_path)
+            df = df.drop(columns=['Unnamed: 133'], errors='ignore')
+            
+            X = df.drop('prognosis', axis=1)
+            y = df['prognosis']
+            
+            from sklearn.preprocessing import LabelEncoder
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.impute import SimpleImputer
+            from sklearn.pipeline import Pipeline
+            
+            le = LabelEncoder()
+            y_encoded = le.fit_transform(y)
+            
+            pipeline = Pipeline([
+                ('imputer', SimpleImputer(strategy='mean')),
+                ('classifier', RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1))
+            ])
+            
+            pipeline.fit(X, y_encoded)
+            
+            # Save models
+            joblib.dump(pipeline, model_path)
+            joblib.dump(le, encoder_path)
+            
+            st.success("✅ Model trained successfully!")
+            return pipeline, le
+            
+        except Exception as e:
+            st.error(f"❌ Training failed: {str(e)}")
+            return None, None
+
+# ============================================
+# Helper functions
+# ============================================
 def preprocess_symptoms(user_input):
     """Convert user input to feature vector"""
+    if not user_input.strip():
+        return [0] * len(ALL_SYMPTOMS)
+    
     user_symptoms = [s.strip().lower().replace(' ', '_') for s in user_input.split(",")]
     result = []
     for symptom in ALL_SYMPTOMS:
-        matched = False
-        for us in user_symptoms:
-            if us == symptom or us.replace('_', ' ') == symptom.replace('_', ' '):
-                matched = True
-                break
+        matched = any(
+            us == symptom or us.replace('_', ' ') == symptom.replace('_', ' ')
+            for us in user_symptoms
+        )
         result.append(1 if matched else 0)
     return result
 
@@ -169,20 +187,17 @@ def generate_explanation(disease, symptoms):
 **1. What is {disease}?**  
 {disease} is a medical condition that affects the body's normal functioning.
 
-**2. Common Symptoms:**  
-Based on your input, the system analyzed your reported symptoms.
-
-**3. Symptom Match Analysis:**  
+**2. Symptom Match Analysis:**  
 You reported: {symptoms}  
 This combination suggests {disease}.
 
-**4. Severity Level:**  
+**3. Severity Level:**  
 🟡 **{info.get('severity', 'Unknown')}**
 
-**5. General Home Care Suggestions:**  
+**4. General Home Care Suggestions:**  
 • {info.get('remedies', 'Consult a healthcare provider')}
 
-**6. When to Consult a Doctor:**  
+**5. When to Consult a Doctor:**  
 • If symptoms persist or worsen  
 • If you experience severe pain or discomfort  
 • If you have fever lasting more than 3 days  
@@ -191,11 +206,14 @@ This combination suggests {disease}.
 """
     return explanation
 
-# -------------------------------------------------
-# Streamlit UI
-# -------------------------------------------------
-st.set_page_config(page_title="Disease Prediction AI", layout="centered")
+# ============================================
+# Load model (this runs after page config)
+# ============================================
+model, label_encoder = load_or_train_model()
 
+# ============================================
+# Streamlit UI
+# ============================================
 st.title("🩺 AI-Based Disease Prediction System")
 st.write("Predict diseases based on symptoms (For educational purposes only)")
 
@@ -206,10 +224,12 @@ st.sidebar.write("""
 3. Get the predicted disease
 
 **Example:** itching, skin_rash, fatigue
+
+**Note:** Use symptom names as shown in the dataset.
 """)
 
 if model is None or label_encoder is None:
-    st.error("❌ Model not available. Please check your Training.csv file.")
+    st.error("❌ Model not available. Please check that Training.csv is in the repository.")
     st.stop()
 
 symptoms = st.text_area(
