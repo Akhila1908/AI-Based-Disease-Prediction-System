@@ -5,7 +5,7 @@ import streamlit as st
 st.set_page_config(
     page_title="AI Disease Prediction System",
     page_icon="🩺",
-    layout="centered"  # Changed from "wide" to "centered" for smaller width
+    layout="centered"
 )
 
 # ============================================
@@ -17,44 +17,43 @@ import joblib
 from pathlib import Path
 import warnings
 import os
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Groq LLM Setup - FIXED
+# Groq LLM Setup
 # ============================================
 
 def get_groq_client():
-    """Initialize Groq client - FIXED VERSION"""
+    """Initialize Groq client - Reads API key from Streamlit secrets"""
     try:
-        # Try multiple ways to get API key
         api_key = None
         
-        # Method 1: Streamlit secrets
+        # Read from Streamlit secrets (for cloud)
         try:
             if hasattr(st, 'secrets') and "GROQ_API_KEY" in st.secrets:
                 api_key = st.secrets["GROQ_API_KEY"]
-                print("✅ Found API key in Streamlit secrets")
         except:
             pass
         
-        # Method 2: Environment variable
+        # Fallback to environment variable (for local)
         if not api_key:
             api_key = os.getenv("GROQ_API_KEY")
-            if api_key:
-                print("✅ Found API key in environment variables")
         
         if not api_key:
-            return None, "GROQ_API_KEY not found. Please add to Streamlit secrets."
+            return None, "GROQ_API_KEY not found"
         
-        # Initialize Groq client
         from groq import Groq
         client = Groq(api_key=api_key)
         return client, None
         
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        return None, str(e)
 
 def get_disease_info_from_groq(disease_name, symptoms_list, confidence):
     """Get disease-specific information from Groq LLM"""
@@ -121,7 +120,7 @@ Keep responses practical and specific to {disease_name}."""
         return None
 
 # ============================================
-# Load data from CSV
+# Load data and train model (all in one)
 # ============================================
 @st.cache_data
 def load_training_data():
@@ -130,48 +129,22 @@ def load_training_data():
         st.error("❌ Training.csv not found!")
         return None
     
-    try:
-        df = pd.read_csv(csv_path)
-        # Remove unnamed column if exists
-        df = df.drop(columns=['Unnamed: 133'], errors='ignore')
-        return df
-    except Exception as e:
-        st.error(f"Error loading CSV: {str(e)}")
-        return None
-
-@st.cache_data
-def get_symptom_list(df):
-    if df is None:
-        return []
-    return [col for col in df.columns if col != 'prognosis']
+    df = pd.read_csv(csv_path)
+    df = df.drop(columns=['Unnamed: 133'], errors='ignore')
+    return df
 
 @st.cache_resource
-def load_or_train_model(df):
-    model_path = BASE_DIR / "disease_model.joblib"
-    encoder_path = BASE_DIR / "label_encoder.joblib"
-    
+def get_model_and_encoder():
+    """Load or train model - everything happens here"""
+    df = load_training_data()
     if df is None:
         return None, None
     
-    # Try to load existing model
-    if model_path.exists() and encoder_path.exists():
-        try:
-            model = joblib.load(model_path)
-            le = joblib.load(encoder_path)
-            return model, le
-        except Exception as e:
-            st.warning(f"Training new model...")
-    
-    # Train new model
-    with st.spinner("🔄 Training AI model..."):
+    # Train model
+    with st.spinner("🔄 Training AI model from dataset..."):
         try:
             X = df.drop('prognosis', axis=1)
             y = df['prognosis']
-            
-            from sklearn.preprocessing import LabelEncoder
-            from sklearn.ensemble import RandomForestClassifier
-            from sklearn.impute import SimpleImputer
-            from sklearn.pipeline import Pipeline
             
             le = LabelEncoder()
             y_encoded = le.fit_transform(y)
@@ -183,10 +156,6 @@ def load_or_train_model(df):
             
             pipeline.fit(X, y_encoded)
             
-            # Save models
-            joblib.dump(pipeline, model_path)
-            joblib.dump(le, encoder_path)
-            
             return pipeline, le
             
         except Exception as e:
@@ -195,7 +164,7 @@ def load_or_train_model(df):
 
 def preprocess_symptoms(user_input, all_symptoms):
     if not user_input.strip() or not all_symptoms:
-        return [0] * len(all_symptoms) if all_symptoms else [0] * 132
+        return [0] * 132
     
     user_symptoms = [s.strip().lower().replace(' ', '_') for s in user_input.split(",")]
     
@@ -208,37 +177,31 @@ def preprocess_symptoms(user_input, all_symptoms):
     return result
 
 # ============================================
-# Load data
+# Main App
 # ============================================
-df = load_training_data()
 
+# Load everything
+df = load_training_data()
 if df is None:
     st.stop()
 
-ALL_SYMPTOMS = get_symptom_list(df)
-model, label_encoder = load_or_train_model(df)
+ALL_SYMPTOMS = [col for col in df.columns if col != 'prognosis']
+model, label_encoder = get_model_and_encoder()
 
-# ============================================
-# UI
-# ============================================
 st.title("🩺 AI Disease Prediction System")
 
-# Sidebar
 with st.sidebar:
     st.write("### 📊 Dataset Info")
-    if df is not None:
-        st.write(f"**Diseases:** {df['prognosis'].nunique()}")
-        st.write(f"**Symptoms:** {len(ALL_SYMPTOMS)}")
-        st.write(f"**Records:** {len(df)}")
+    st.write(f"**Diseases:** {df['prognosis'].nunique()}")
+    st.write(f"**Symptoms:** {len(ALL_SYMPTOMS)}")
+    st.write(f"**Records:** {len(df)}")
     
     st.write("---")
-    
-    # Test Groq connection
-    client, error = get_groq_client()
+    client, _ = get_groq_client()
     if client:
         st.success("✅ Groq AI Ready")
     else:
-        st.warning("⚠️ Groq AI: " + (error[:50] if error else "Not configured"))
+        st.warning("⚠️ Add GROQ_API_KEY in Streamlit Cloud Secrets")
     
     st.write("---")
     st.write("### 📝 How to Use")
@@ -246,7 +209,6 @@ with st.sidebar:
     st.write("2. Click Predict")
     st.write("3. Get AI-powered health info")
 
-# Main input
 st.write("### Enter Your Symptoms")
 symptoms_input = st.text_area(
     "",
@@ -255,7 +217,6 @@ symptoms_input = st.text_area(
     label_visibility="collapsed"
 )
 
-# Center the button
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     predict_clicked = st.button("🔍 Predict Disease", type="primary", use_container_width=True)
@@ -268,7 +229,6 @@ if predict_clicked:
     else:
         with st.spinner("🧠 Analyzing..."):
             try:
-                # Get prediction
                 input_vector = preprocess_symptoms(symptoms_input, ALL_SYMPTOMS)
                 pred_encoded = model.predict([input_vector])[0]
                 predicted_disease = label_encoder.inverse_transform([pred_encoded])[0]
@@ -278,10 +238,8 @@ if predict_clicked:
                 
                 symptom_list = [s.strip() for s in symptoms_input.split(",") if s.strip()]
                 
-                # Display prediction
                 st.success(f"### 🎯 Predicted: {predicted_disease}")
                 
-                # Show confidence with color coding
                 if confidence >= 80:
                     st.metric("Confidence", f"{confidence:.0f}%", delta="High")
                 elif confidence >= 60:
@@ -291,20 +249,18 @@ if predict_clicked:
                 
                 st.markdown("---")
                 
-                # Get Groq information
                 client, _ = get_groq_client()
                 if client:
                     with st.spinner(f"🤖 Getting information about {predicted_disease}..."):
                         disease_info = get_disease_info_from_groq(predicted_disease, symptom_list, confidence)
-                        
                         if disease_info:
                             st.markdown(disease_info)
                         else:
-                            st.error(f"Could not fetch information. Please try again.")
+                            st.error("Could not fetch information. Please try again.")
                 else:
-                    st.info("💡 **Enable Groq AI:** Add GROQ_API_KEY to Streamlit secrets for home remedies and health tips.")
+                    st.info("💡 **Enable Groq AI:** Add GROQ_API_KEY to Streamlit Cloud Secrets")
                     
-                    # Show common symptoms from training data
+                    # Show common symptoms from training data as fallback
                     disease_data = df[df['prognosis'] == predicted_disease]
                     common_symptoms = []
                     for sym in ALL_SYMPTOMS[:20]:
@@ -318,7 +274,6 @@ if predict_clicked:
                             with cols[i % 3]:
                                 st.write(f"- {sym}")
                 
-                # Disclaimer
                 st.markdown("---")
                 st.caption("⚠️ **Educational purpose only.** Always consult a healthcare provider.")
                 
