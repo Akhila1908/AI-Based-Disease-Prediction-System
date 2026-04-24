@@ -11,7 +11,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
 # -------------------------------------------------
-# Load trained model and label encoder
+# Load trained model
 # -------------------------------------------------
 @st.cache_resource
 def load_model():
@@ -21,17 +21,7 @@ def load_model():
         return None
     return joblib.load(model_path)
 
-@st.cache_resource
-def load_label_encoder():
-    le_path = BASE_DIR / "label_encoder.joblib"
-    if not le_path.exists():
-        st.error(f"Label encoder file not found at {le_path}")
-        return None
-    return joblib.load(le_path)
-
-# Load both
 model = load_model()
-label_encoder = load_label_encoder()
 
 # -------------------------------------------------
 # Full symptom list (must match training)
@@ -59,7 +49,7 @@ ALL_SYMPTOMS = [
     'movement_stiffness','spinning_movements','loss_of_balance','unsteadiness',
     'weakness_of_one_body_side','loss_of_smell','bladder_discomfort',
     'foul_smell_of urine','continuous_feel_of_urine','passage_of_gases',
-    'internal_ itching','toxic_look_(typhos)','depression','irritability',
+    'internal_itching','toxic_look_(typhos)','depression','irritability',
     'muscle_pain','altered_sensorium','red_spots_over_body','belly_pain',
     'abnormal_menstruation','dischromic _patches','watering_from_eyes',
     'increased_appetite','polyuria','family_history','mucoid_sputum',
@@ -69,10 +59,11 @@ ALL_SYMPTOMS = [
     'blood_in_sputum','prominent_veins_on_calf','palpitations',
     'painful_walking','pus_filled_pimples','blackheads','scurring',
     'skin_peeling','silver_like_dusting','small_dents_in_nails',
-    'inflammatory_nails','blister','red_sore_around_nose','yellow_crust_ooze'
+    'inflammatory_nails','blister','red_sore_around_nose','yellow_crust_ooze',
+    'fluid_overload'  # Added from your dataset
 ]
 
-# Disease descriptions dictionary (simplified explanation)
+# Disease descriptions dictionary
 DISEASE_INFO = {
     "Fungal infection": {"severity": "Mild to Moderate", "remedies": "Keep area dry, use antifungal cream, maintain hygiene"},
     "Allergy": {"severity": "Mild", "remedies": "Avoid allergens, take antihistamines, use cold compress"},
@@ -121,58 +112,47 @@ DISEASE_INFO = {
 # Convert input to vector
 # -------------------------------------------------
 def preprocess_symptoms(user_input):
-    user_symptoms = [s.strip().lower().replace('_', ' ').replace('  ', ' ') for s in user_input.split(",")]
-    # Clean symptom names
-    cleaned_symptoms = []
-    for s in user_symptoms:
-        cleaned = s.replace(' ', '_')
-        cleaned_symptoms.append(cleaned)
-    
-    # Create vector
+    user_symptoms = [s.strip().lower().replace(' ', '_') for s in user_input.split(",")]
     result = []
     for symptom in ALL_SYMPTOMS:
-        if symptom in cleaned_symptoms:
-            result.append(1)
-        else:
-            # Also check with space variations
-            found = False
-            for cs in cleaned_symptoms:
-                if cs.replace('_', ' ') == symptom.replace('_', ' '):
-                    found = True
-                    break
-            result.append(1 if found else 0)
+        # Check exact match or with underscore variations
+        matched = False
+        for us in user_symptoms:
+            if us == symptom or us.replace('_', ' ') == symptom.replace('_', ' '):
+                matched = True
+                break
+        result.append(1 if matched else 0)
     return result
 
 # -------------------------------------------------
-# Generate simple explanation without external API
+# Generate explanation
 # -------------------------------------------------
 def generate_explanation(disease, symptoms):
     info = DISEASE_INFO.get(disease, {"severity": "Unknown", "remedies": "Consult a healthcare provider"})
     
     explanation = f"""
-1. **What is {disease}?**
-   {disease} is a medical condition that affects the body's normal functioning.
+**1. What is {disease}?**  
+{disease} is a medical condition that affects the body's normal functioning.
 
-2. **Common Symptoms:**
-   - Based on your input, the system analyzed your reported symptoms.
+**2. Common Symptoms:**  
+Based on your input, the system analyzed your reported symptoms.
 
-3. **Symptom Match Analysis:**
-   - You reported: {symptoms}
-   - This combination suggests {disease}.
+**3. Symptom Match Analysis:**  
+You reported: {symptoms}  
+This combination suggests {disease}.
 
-4. **Severity Level:**
-   🟡 **{info.get('severity', 'Unknown')}**
+**4. Severity Level:**  
+🟡 **{info.get('severity', 'Unknown')}**
 
-5. **General Home Care Suggestions:**
-   • {info.get('remedies', 'Consult a healthcare provider')}
+**5. General Home Care Suggestions:**  
+• {info.get('remedies', 'Consult a healthcare provider')}
 
-6. **When to Consult a Doctor:**
-   • If symptoms persist or worsen
-   • If you experience severe pain or discomfort
-   • If you have fever lasting more than 3 days
-   • Always consult a healthcare professional for proper diagnosis
+**6. When to Consult a Doctor:**  
+• If symptoms persist or worsen  
+• If you experience severe pain or discomfort  
+• If you have fever lasting more than 3 days  
 
-⚠️ **Disclaimer:** This is an AI prediction tool for educational purposes only. Always consult a qualified healthcare provider for medical advice, diagnosis, or treatment.
+⚠️ **Disclaimer:** This is an AI prediction tool for educational purposes only. Always consult a qualified healthcare provider.
 """
     return explanation
 
@@ -182,30 +162,16 @@ def generate_explanation(disease, symptoms):
 st.set_page_config(page_title="Disease Prediction AI", layout="centered")
 
 st.title("🩺 AI-Based Disease Prediction System")
-st.write("Predict diseases based on symptoms and get basic information (For educational purposes only)")
+st.write("Predict diseases based on symptoms (For educational purposes only)")
 
-# Add sidebar for info
 st.sidebar.header("ℹ️ How to Use")
 st.sidebar.write("""
-1. Enter your symptoms separated by commas
+1. Enter symptoms separated by commas
 2. Click 'Predict Disease'
-3. Get the predicted disease and basic information
-4. **Always consult a doctor for proper diagnosis**
+3. Get the predicted disease
 
-**Example symptoms:**
-- itching, skin_rash, nodal_skin_eruptions
-- continuous_sneezing, shivering, chills
-- joint_pain, stomach_pain, acidity
+**Example:** itching, skin_rash, fatigue
 """)
-
-st.sidebar.header("📋 Available Symptoms")
-st.sidebar.write("Common symptoms you can try:")
-common_symptoms = [
-    "itching", "skin_rash", "cough", "fever", "fatigue", 
-    "headache", "nausea", "vomiting", "diarrhoea", "constipation"
-]
-for s in common_symptoms[:10]:
-    st.sidebar.write(f"- {s}")
 
 symptoms = st.text_area(
     "Enter your symptoms (comma separated):",
@@ -213,63 +179,38 @@ symptoms = st.text_area(
     height=100
 )
 
-col1, col2 = st.columns([1, 5])
-with col1:
-    if st.button("🔍 Predict Disease", use_container_width=True):
-        if symptoms.strip() == "":
-            st.warning("⚠️ Please enter at least one symptom.")
-        else:
-            with st.spinner("Analyzing symptoms..."):
-                input_data = preprocess_symptoms(symptoms)
-                
-                if model is None or label_encoder is None:
-                    st.error("Model or label encoder not loaded. Please check the files.")
-                else:
-                    try:
-                        # =============================================
-                        # HERE IS WHERE THE LABEL ENCODER IS USED:
-                        # =============================================
-                        predicted_encoded = model.predict([input_data])[0]
-                        predicted_disease = label_encoder.inverse_transform([predicted_encoded])[0]
-                        # =============================================
+if st.button("🔍 Predict Disease", type="primary"):
+    if symptoms.strip() == "":
+        st.warning("⚠️ Please enter at least one symptom.")
+    else:
+        with st.spinner("Analyzing symptoms..."):
+            input_data = preprocess_symptoms(symptoms)
+            
+            if model is None:
+                st.error("Model not loaded. Please check the file.")
+            else:
+                try:
+                    # Make prediction
+                    predicted_disease = model.predict([input_data])[0]
+                    
+                    st.success(f"🧠 **Predicted Disease:** {predicted_disease}")
+                    
+                    # Generate and show explanation
+                    explanation = generate_explanation(predicted_disease, symptoms)
+                    st.markdown("---")
+                    st.markdown(explanation)
+                    
+                    with st.expander("📜 Important Disclaimer"):
+                        st.markdown("""
+                        **This tool is for educational purposes only.**
                         
-                        st.success(f"🧠 **Predicted Disease:** {predicted_disease}")
+                        - Not a substitute for professional medical advice
+                        - Always consult a qualified healthcare provider
+                        - In case of emergency, contact local emergency services
+                        """)
                         
-                        # Show severity indicator
-                        severity = DISEASE_INFO.get(predicted_disease, {}).get("severity", "Unknown")
-                        severity_color = {
-                            "Mild": "🟢",
-                            "Moderate": "🟡", 
-                            "Severe": "🔴",
-                            "Chronic": "🟠",
-                            "Emergency": "🔴🔴",
-                            "Unknown": "⚪"
-                        }.get(severity, "⚪")
-                        
-                        st.info(f"{severity_color} **Severity Level:** {severity}")
-                        
-                        # Generate explanation
-                        explanation = generate_explanation(predicted_disease, symptoms)
-                        
-                        st.markdown("---")
-                        st.subheader("📘 Disease Information")
-                        st.markdown(explanation)
-                        
-                        # Add a disclaimer button
-                        with st.expander("📜 Important Disclaimer"):
-                            st.markdown("""
-                            **This tool is for educational purposes only.**
-                            
-                            - This is not a substitute for professional medical advice
-                            - Predictions are based on machine learning models and may not be accurate
-                            - Always consult a qualified healthcare provider for diagnosis and treatment
-                            - In case of emergency, contact your local emergency services immediately
-                            """)
-                            
-                    except Exception as e:
-                        st.error(f"Error making prediction: {str(e)}")
-                        st.info("Try using symptoms exactly as shown in the sidebar examples.")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
 
-# Footer
 st.markdown("---")
-st.caption("Built with Machine Learning | For educational purposes only")
+st.caption("Built with Machine Learning | Educational purposes only")
