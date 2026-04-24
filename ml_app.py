@@ -11,7 +11,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
 # -------------------------------------------------
-# Load trained model
+# Load trained model and label encoder
 # -------------------------------------------------
 @st.cache_resource
 def load_model():
@@ -21,7 +21,16 @@ def load_model():
         return None
     return joblib.load(model_path)
 
+@st.cache_resource
+def load_label_encoder():
+    encoder_path = BASE_DIR / "label_encoder.joblib"
+    if not encoder_path.exists():
+        st.warning("Label encoder not found. Predictions will show numeric values.")
+        return None
+    return joblib.load(encoder_path)
+
 model = load_model()
+label_encoder = load_label_encoder()
 
 # -------------------------------------------------
 # Full symptom list (must match training)
@@ -59,8 +68,7 @@ ALL_SYMPTOMS = [
     'blood_in_sputum','prominent_veins_on_calf','palpitations',
     'painful_walking','pus_filled_pimples','blackheads','scurring',
     'skin_peeling','silver_like_dusting','small_dents_in_nails',
-    'inflammatory_nails','blister','red_sore_around_nose','yellow_crust_ooze',
-    'fluid_overload'  # Added from your dataset
+    'inflammatory_nails','blister','red_sore_around_nose','yellow_crust_ooze'
 ]
 
 # Disease descriptions dictionary
@@ -190,8 +198,18 @@ if st.button("🔍 Predict Disease", type="primary"):
                 st.error("Model not loaded. Please check the file.")
             else:
                 try:
-                    # Make prediction
-                    predicted_disease = model.predict([input_data])[0]
+                    # =============================================
+                    # KEY CHANGE: Use label encoder to convert numeric prediction to disease name
+                    # =============================================
+                    prediction_encoded = model.predict([input_data])[0]
+                    
+                    # Convert numeric prediction to disease name
+                    if label_encoder is not None:
+                        predicted_disease = label_encoder.inverse_transform([prediction_encoded])[0]
+                    else:
+                        # If no label encoder, try to map common values or show numeric
+                        predicted_disease = str(prediction_encoded)
+                    # =============================================
                     
                     st.success(f"🧠 **Predicted Disease:** {predicted_disease}")
                     
