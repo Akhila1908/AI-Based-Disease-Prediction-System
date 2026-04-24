@@ -89,11 +89,11 @@ def preprocess_symptoms(user_input, all_symptoms):
     return result
 
 # ============================================
-# Groq LLM with direct API call (no library)
+# Groq LLM with direct API call
 # ============================================
 
 def get_health_info_from_groq(disease_name, symptoms_list, confidence):
-    """Get health information using direct Groq API call"""
+    """Get health information using direct Groq API call with better formatting"""
     
     api_key = None
     try:
@@ -104,7 +104,6 @@ def get_health_info_from_groq(disease_name, symptoms_list, confidence):
     if not api_key:
         return None
     
-    # Using requests instead of groq library to avoid version issues
     import requests
     
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -114,50 +113,49 @@ def get_health_info_from_groq(disease_name, symptoms_list, confidence):
         "Content-Type": "application/json"
     }
     
-    prompt = f"""You are a medical information assistant. Provide health information for {disease_name}.
+    prompt = f"""You are a medical information assistant. Provide detailed health information for {disease_name}.
 
-Symptoms reported: {', '.join(symptoms_list)}
+User symptoms: {', '.join(symptoms_list)}
 Confidence: {confidence:.1f}%
 
-Provide EXACTLY this format:
+Provide the response in EXACTLY this format with clear sections and bullet points:
 
-🌿 HOME REMEDIES:
-• Remedy 1
-• Remedy 2
-• Remedy 3
-• Remedy 4
-• Remedy 5
+**About the condition**
+[1-2 sentences explaining what {disease_name} is]
 
-🥗 DIET RECOMMENDATIONS:
-• Diet tip 1
-• Diet tip 2
-• Diet tip 3
-• Diet tip 4
-• Diet tip 5
+**Common symptoms**
+- Symptom 1
+- Symptom 2
+- Symptom 3
+- Symptom 4
+- Symptom 5
 
-🛡️ PREVENTION TIPS:
-• Prevention tip 1
-• Prevention tip 2
-• Prevention tip 3
-• Prevention tip 4
-• Prevention tip 5
+**Do the given symptoms match?**
+[Yes/No] - [1 sentence explanation]
 
-🏃‍♂️ EXERCISE GUIDELINES:
-[2 sentences about safe exercises]
+**Is it mild or serious?**
+[1 sentence explaining severity]
 
-📚 WHEN TO SEE A DOCTOR:
+**General home care**
+- Home care tip 1
+- Home care tip 2
+- Home care tip 3
+- Home care tip 4
+- Home care tip 5
+
+**When to consult a doctor**
 - Warning sign 1
 - Warning sign 2
 - Warning sign 3
 
-Keep responses practical and specific to {disease_name}. Use simple language. Never give medical advice."""
+Keep responses practical, specific to {disease_name}, and easy to read. Use simple language. Never give medical advice."""
 
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "system",
-                "content": f"You are a medical information assistant. Provide specific information about {disease_name}. Never give medical advice."
+                "content": f"You are a medical information assistant. Provide clear, organized health information about {disease_name}. Use bullet points with dashes. Never give medical advice."
             },
             {
                 "role": "user",
@@ -165,7 +163,7 @@ Keep responses practical and specific to {disease_name}. Use simple language. Ne
             }
         ],
         "temperature": 0.3,
-        "max_tokens": 800
+        "max_tokens": 1000
     }
     
     try:
@@ -173,13 +171,12 @@ Keep responses practical and specific to {disease_name}. Use simple language. Ne
         
         if response.status_code == 200:
             result = response.json()
-            return result['choices'][0]['message']['content']
+            content = result['choices'][0]['message']['content']
+            return content
         else:
-            st.error(f"API Error: {response.status_code}")
             return None
             
     except Exception as e:
-        st.error(f"Request Error: {str(e)[:100]}")
         return None
 
 # ============================================
@@ -216,19 +213,17 @@ with st.sidebar:
     
     st.write("---")
     
-    # Check Groq status
     if groq_key_available:
         st.success("✅ Groq AI Ready")
-        st.caption("Will provide home remedies & health tips")
+        st.caption("Providing detailed health information")
     else:
         st.warning("⚠️ Groq AI not configured")
-        st.info("Add GROQ_API_KEY in Settings → Secrets")
     
     st.write("---")
     st.write("### 📝 Instructions")
     st.write("1. Enter symptoms (comma separated)")
     st.write("2. Click Predict")
-    st.write("3. Get health information")
+    st.write("3. Get detailed health information")
 
 st.write("### Enter Your Symptoms")
 symptoms_input = st.text_area(
@@ -264,6 +259,7 @@ if predict_clicked:
                 
                 # Display result
                 st.success(f"### 🎯 Predicted: {predicted_disease}")
+                st.caption(f"User symptoms: {', '.join(symptom_list)}")
                 
                 # Show confidence with color
                 if confidence >= 80:
@@ -277,14 +273,15 @@ if predict_clicked:
                 
                 # Get health information from Groq if available
                 if groq_key_available:
-                    with st.spinner(f"🤖 Getting health information for {predicted_disease}..."):
+                    with st.spinner(f"🤖 Getting detailed health information for {predicted_disease}..."):
                         info = get_health_info_from_groq(predicted_disease, symptom_list, confidence)
                         if info:
+                            # Display the formatted information
                             st.markdown(info)
                         else:
                             st.warning("Could not fetch information. Please try again.")
                             
-                            # Show fallback - common symptoms from training data
+                            # Fallback - show common symptoms from training data
                             disease_data = df[df['prognosis'] == predicted_disease]
                             common_symptoms = []
                             for sym in ALL_SYMPTOMS[:20]:
@@ -292,14 +289,11 @@ if predict_clicked:
                                     common_symptoms.append(sym.replace('_', ' ').title())
                             
                             if common_symptoms:
-                                st.write("**Common symptoms (from training data):**")
-                                cols = st.columns(3)
-                                for i, sym in enumerate(common_symptoms[:9]):
-                                    with cols[i % 3]:
-                                        st.write(f"- {sym}")
+                                st.markdown("**Common symptoms (from training data):**")
+                                for sym in common_symptoms[:10]:
+                                    st.markdown(f"- {sym}")
                 else:
-                    st.info("💡 **Groq AI not available.** Add your GROQ_API_KEY to get home remedies, diet tips, and prevention advice.")
-                    st.caption("Go to Settings → Secrets → Add: GROQ_API_KEY = 'your_key_here'")
+                    st.info("💡 **Groq AI not available.** Add your GROQ_API_KEY to get detailed health information.")
                     
                     # Show common symptoms from training data
                     disease_data = df[df['prognosis'] == predicted_disease]
@@ -309,11 +303,9 @@ if predict_clicked:
                             common_symptoms.append(sym.replace('_', ' ').title())
                     
                     if common_symptoms:
-                        st.write("**Common symptoms (from training data):**")
-                        cols = st.columns(3)
-                        for i, sym in enumerate(common_symptoms[:9]):
-                            with cols[i % 3]:
-                                st.write(f"- {sym}")
+                        st.markdown("**Common symptoms (from training data):**")
+                        for sym in common_symptoms[:10]:
+                            st.markdown(f"- {sym}")
                 
                 st.markdown("---")
                 st.caption("⚠️ **Educational purpose only.** Always consult a healthcare provider.")
