@@ -1,36 +1,68 @@
 import streamlit as st
-import joblib
 import pandas as pd
 import numpy as np
-import os
+import joblib
+import pickle
 from pathlib import Path
+import os
 
-# -------------------------------------------------
-# Get the directory where this script is located
-# -------------------------------------------------
 BASE_DIR = Path(__file__).parent
 
-# -------------------------------------------------
-# Load trained model and label encoder
-# -------------------------------------------------
 @st.cache_resource
-def load_model():
+def load_or_train_model():
+    """Load model if exists, otherwise train it"""
     model_path = BASE_DIR / "disease_model.joblib"
-    if not model_path.exists():
-        st.error(f"Model file not found at {model_path}")
-        return None
-    return joblib.load(model_path)
-
-@st.cache_resource
-def load_label_encoder():
     encoder_path = BASE_DIR / "label_encoder.joblib"
-    if not encoder_path.exists():
-        st.warning("Label encoder not found. Predictions will show numeric values.")
-        return None
-    return joblib.load(encoder_path)
+    
+    # Try to load existing model
+    if model_path.exists() and encoder_path.exists():
+        try:
+            model = joblib.load(model_path)
+            le = joblib.load(encoder_path)
+            st.success("✅ Model loaded from file")
+            return model, le
+        except Exception as e:
+            st.warning(f"Could not load existing model: {e}")
+            st.info("Training new model...")
+    
+    # Train new model
+    with st.spinner("Training model (this will take a minute)..."):
+        try:
+            # Load data
+            df = pd.read_csv(BASE_DIR / 'Training.csv')
+            df = df.drop(columns=['Unnamed: 133'], errors='ignore')
+            
+            X = df.drop('prognosis', axis=1)
+            y = df['prognosis']
+            
+            from sklearn.preprocessing import LabelEncoder
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.impute import SimpleImputer
+            from sklearn.pipeline import Pipeline
+            
+            le = LabelEncoder()
+            y_encoded = le.fit_transform(y)
+            
+            pipeline = Pipeline([
+                ('imputer', SimpleImputer(strategy='mean')),
+                ('classifier', RandomForestClassifier(n_estimators=200, random_state=42))
+            ])
+            
+            pipeline.fit(X, y_encoded)
+            
+            # Save models
+            joblib.dump(pipeline, model_path)
+            joblib.dump(le, encoder_path)
+            
+            st.success("✅ Model trained and saved successfully!")
+            return pipeline, le
+            
+        except Exception as e:
+            st.error(f"Training failed: {str(e)}")
+            return None, None
 
-model = load_model()
-label_encoder = load_label_encoder()
+# Load or train model
+model, label_encoder = load_or_train_model()
 
 # -------------------------------------------------
 # Full symptom list (must match training)
@@ -71,7 +103,7 @@ ALL_SYMPTOMS = [
     'inflammatory_nails','blister','red_sore_around_nose','yellow_crust_ooze'
 ]
 
-# Disease descriptions dictionary
+# Disease descriptions dictionary (same as your original)
 DISEASE_INFO = {
     "Fungal infection": {"severity": "Mild to Moderate", "remedies": "Keep area dry, use antifungal cream, maintain hygiene"},
     "Allergy": {"severity": "Mild", "remedies": "Avoid allergens, take antihistamines, use cold compress"},
@@ -116,14 +148,11 @@ DISEASE_INFO = {
     "Impetigo": {"severity": "Mild", "remedies": "Antibiotic cream, keep area clean"},
 }
 
-# -------------------------------------------------
-# Convert input to vector
-# -------------------------------------------------
 def preprocess_symptoms(user_input):
+    """Convert user input to feature vector"""
     user_symptoms = [s.strip().lower().replace(' ', '_') for s in user_input.split(",")]
     result = []
     for symptom in ALL_SYMPTOMS:
-        # Check exact match or with underscore variations
         matched = False
         for us in user_symptoms:
             if us == symptom or us.replace('_', ' ') == symptom.replace('_', ' '):
@@ -132,10 +161,8 @@ def preprocess_symptoms(user_input):
         result.append(1 if matched else 0)
     return result
 
-# -------------------------------------------------
-# Generate explanation
-# -------------------------------------------------
 def generate_explanation(disease, symptoms):
+    """Generate explanation for the predicted disease"""
     info = DISEASE_INFO.get(disease, {"severity": "Unknown", "remedies": "Consult a healthcare provider"})
     
     explanation = f"""
@@ -181,6 +208,10 @@ st.sidebar.write("""
 **Example:** itching, skin_rash, fatigue
 """)
 
+if model is None or label_encoder is None:
+    st.error("❌ Model not available. Please check your Training.csv file.")
+    st.stop()
+
 symptoms = st.text_area(
     "Enter your symptoms (comma separated):",
     placeholder="itching, skin_rash, fatigue, headache",
@@ -192,43 +223,33 @@ if st.button("🔍 Predict Disease", type="primary"):
         st.warning("⚠️ Please enter at least one symptom.")
     else:
         with st.spinner("Analyzing symptoms..."):
-            input_data = preprocess_symptoms(symptoms)
-            
-            if model is None:
-                st.error("Model not loaded. Please check the file.")
-            else:
-                try:
-                    # =============================================
-                    # KEY CHANGE: Use label encoder to convert numeric prediction to disease name
-                    # =============================================
-                    prediction_encoded = model.predict([input_data])[0]
+            try:
+                input_vector = preprocess_symptoms(symptoms)
+                
+                # Make prediction
+                prediction_encoded = model.predict([input_vector])[0]
+                
+                # Convert to disease name
+                predicted_disease = label_encoder.inverse_transform([prediction_encoded])[0]
+                
+                st.success(f"🧠 **Predicted Disease:** {predicted_disease}")
+                
+                # Generate and show explanation
+                explanation = generate_explanation(predicted_disease, symptoms)
+                st.markdown("---")
+                st.markdown(explanation)
+                
+                with st.expander("📜 Important Disclaimer"):
+                    st.markdown("""
+                    **This tool is for educational purposes only.**
                     
-                    # Convert numeric prediction to disease name
-                    if label_encoder is not None:
-                        predicted_disease = label_encoder.inverse_transform([prediction_encoded])[0]
-                    else:
-                        # If no label encoder, try to map common values or show numeric
-                        predicted_disease = str(prediction_encoded)
-                    # =============================================
+                    - Not a substitute for professional medical advice
+                    - Always consult a qualified healthcare provider
+                    - In case of emergency, contact local emergency services
+                    """)
                     
-                    st.success(f"🧠 **Predicted Disease:** {predicted_disease}")
-                    
-                    # Generate and show explanation
-                    explanation = generate_explanation(predicted_disease, symptoms)
-                    st.markdown("---")
-                    st.markdown(explanation)
-                    
-                    with st.expander("📜 Important Disclaimer"):
-                        st.markdown("""
-                        **This tool is for educational purposes only.**
-                        
-                        - Not a substitute for professional medical advice
-                        - Always consult a qualified healthcare provider
-                        - In case of emergency, contact local emergency services
-                        """)
-                        
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+            except Exception as e:
+                st.error(f"Error during prediction: {str(e)}")
 
 st.markdown("---")
 st.caption("Built with Machine Learning | Educational purposes only")
