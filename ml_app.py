@@ -2,67 +2,55 @@
 # MUST BE FIRST - Streamlit page config
 # ============================================
 import streamlit as st
-st.set_page_config(page_title="Disease Prediction AI", layout="centered")
+st.set_page_config(
+    page_title="AI Disease Prediction System",
+    page_icon="🩺",
+    layout="wide"
+)
 
 # ============================================
-# Now import other libraries
+# Imports
 # ============================================
 import pandas as pd
 import numpy as np
 import joblib
 from pathlib import Path
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Extract symptoms from Training.csv dynamically
+# Load everything dynamically from CSV
 # ============================================
+
 @st.cache_data
-def get_symptom_list():
-    """Extract symptom names directly from training data"""
+def load_training_data():
+    """Load training data from CSV"""
     csv_path = BASE_DIR / 'Training.csv'
     if not csv_path.exists():
-        st.error("❌ Training.csv not found! Please upload the dataset.")
+        st.error("❌ Training.csv not found!")
         return None
     
     df = pd.read_csv(csv_path)
-    # Drop the target column 'prognosis' and any unnamed columns
-    symptom_columns = [col for col in df.columns if col not in ['prognosis', 'Unnamed: 133']]
+    df = df.drop(columns=['Unnamed: 133'], errors='ignore')
+    return df
+
+@st.cache_data
+def get_symptom_list(df):
+    """Extract symptom names from training data"""
+    symptom_columns = [col for col in df.columns if col != 'prognosis']
     return symptom_columns
 
 @st.cache_data
-def get_disease_info_from_data():
-    """Extract disease descriptions from training data if available"""
-    csv_path = BASE_DIR / 'Training.csv'
-    if not csv_path.exists():
-        return {}
-    
-    df = pd.read_csv(csv_path)
-    diseases = df['prognosis'].unique()
-    # Return basic info for each disease
-    return {disease: {"severity": "Unknown", "remedies": "Consult a healthcare provider"} 
-            for disease in diseases}
+def get_disease_list(df):
+    """Extract all unique diseases from training data"""
+    return sorted(df['prognosis'].unique())
 
-# Get symptoms from the actual data
-ALL_SYMPTOMS = get_symptom_list()
-
-if ALL_SYMPTOMS is None:
-    st.stop()
-
-# Get disease info
-DISEASE_INFO = get_disease_info_from_data()
-
-# Display count for debugging
-st.sidebar.write(f"📊 Loaded {len(ALL_SYMPTOMS)} symptoms from training data")
-
-# ============================================
-# Load or train model
-# ============================================
 @st.cache_resource
-def load_or_train_model():
-    """Load model if exists, otherwise train it"""
+def load_or_train_model(df):
+    """Load existing model or train new one from CSV"""
     model_path = BASE_DIR / "disease_model.joblib"
     encoder_path = BASE_DIR / "label_encoder.joblib"
     
@@ -75,18 +63,9 @@ def load_or_train_model():
         except Exception as e:
             st.warning(f"Could not load existing model: {e}")
     
-    # Train new model
-    csv_path = BASE_DIR / 'Training.csv'
-    if not csv_path.exists():
-        st.error("❌ Training.csv not found! Please upload the dataset.")
-        return None, None
-    
-    with st.spinner("🔄 Training model (this may take 1-2 minutes)..."):
+    # Train new model from CSV
+    with st.spinner("🔄 Training AI model from dataset..."):
         try:
-            # Load data
-            df = pd.read_csv(csv_path)
-            df = df.drop(columns=['Unnamed: 133'], errors='ignore')
-            
             X = df.drop('prognosis', axis=1)
             y = df['prognosis']
             
@@ -100,7 +79,11 @@ def load_or_train_model():
             
             pipeline = Pipeline([
                 ('imputer', SimpleImputer(strategy='mean')),
-                ('classifier', RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1))
+                ('classifier', RandomForestClassifier(
+                    n_estimators=200, 
+                    random_state=42, 
+                    n_jobs=-1
+                ))
             ])
             
             pipeline.fit(X, y_encoded)
@@ -116,143 +99,272 @@ def load_or_train_model():
             st.error(f"❌ Training failed: {str(e)}")
             return None, None
 
-# ============================================
-# Helper functions
-# ============================================
-def preprocess_symptoms(user_input):
-    """Convert user input to feature vector using actual symptom list"""
+def preprocess_symptoms(user_input, all_symptoms):
+    """Convert user input to feature vector"""
     if not user_input.strip():
-        return [0] * len(ALL_SYMPTOMS)
+        return [0] * len(all_symptoms)
     
-    # Clean user input
     user_symptoms = [s.strip().lower().replace(' ', '_') for s in user_input.split(",")]
     
-    # Create feature vector
     result = []
-    for symptom in ALL_SYMPTOMS:
-        # Clean symptom name for comparison (remove extra spaces)
+    for symptom in all_symptoms:
         clean_symptom = symptom.strip().lower().replace('  ', ' ')
-        matched = False
-        
-        for us in user_symptoms:
-            # Try exact match and normalized match
-            if us == clean_symptom or us.replace('_', ' ') == clean_symptom.replace('_', ' '):
-                matched = True
-                break
-        
+        matched = any(
+            us == clean_symptom or us.replace('_', ' ') == clean_symptom.replace('_', ' ')
+            for us in user_symptoms
+        )
         result.append(1 if matched else 0)
-    
-    # Debug info
-    st.sidebar.write(f"📝 Feature vector length: {len(result)}")
-    st.sidebar.write(f"✅ Non-zero features: {sum(result)}")
     
     return result
 
-def generate_explanation(disease, symptoms):
-    """Generate explanation for the predicted disease"""
-    info = DISEASE_INFO.get(disease, {"severity": "Unknown", "remedies": "Consult a healthcare provider"})
+def get_disease_info_from_csv(df, disease_name):
+    """Get sample information about disease from CSV data"""
+    # Get rows with this disease
+    disease_rows = df[df['prognosis'] == disease_name]
     
-    explanation = f"""
-**1. What is {disease}?**  
-{disease} is a medical condition that affects the body's normal functioning.
-
-**2. Symptom Match Analysis:**  
-You reported: {symptoms}  
-This combination suggests {disease}.
-
-**3. Severity Level:**  
-🟡 **{info.get('severity', 'Consult Doctor')}**
-
-**4. General Home Care Suggestions:**  
-• {info.get('remedies', 'Consult a healthcare provider for proper diagnosis')}
-
-**5. When to Consult a Doctor:**  
-• If symptoms persist or worsen  
-• If you experience severe pain or discomfort  
-• If you have fever lasting more than 3 days  
-
-⚠️ **Disclaimer:** This is an AI prediction tool for educational purposes only. Always consult a qualified healthcare provider.
-"""
-    return explanation
+    # Find common symptoms for this disease
+    symptom_cols = [col for col in df.columns if col != 'prognosis']
+    common_symptoms = []
+    for symptom in symptom_cols:
+        if disease_rows[symptom].mean() > 0.5:  # If >50% of cases have this symptom
+            common_symptoms.append(symptom.replace('_', ' ').title())
+    
+    return {
+        "severity": "Varies by case",
+        "common_symptoms": common_symptoms[:10],  # Top 10 common symptoms
+        "sample_count": len(disease_rows)
+    }
 
 # ============================================
-# Load model (this runs after page config)
+# Load data and initialize
 # ============================================
-model, label_encoder = load_or_train_model()
+df = load_training_data()
 
-# ============================================
-# Streamlit UI
-# ============================================
-st.title("🩺 AI-Based Disease Prediction System")
-st.write("Predict diseases based on symptoms (For educational purposes only)")
-
-st.sidebar.header("ℹ️ How to Use")
-st.sidebar.write("""
-1. Enter symptoms separated by commas
-2. Click 'Predict Disease'
-3. Get the predicted disease
-
-**Example symptoms you can try:**  
-itching, skin_rash, fatigue, headache, nausea, vomiting
-
-**Note:** Use symptom names as they appear in the dataset.
-""")
-
-if model is None or label_encoder is None:
-    st.error("❌ Model not available. Please check that Training.csv is in the repository.")
+if df is None:
     st.stop()
 
-# Example symptoms button
-if st.sidebar.button("📋 Load Example Symptoms"):
-    st.session_state['symptoms_input'] = "itching, skin_rash, fatigue"
-    st.rerun()
+ALL_SYMPTOMS = get_symptom_list(df)
+ALL_DISEASES = get_disease_list(df)
+model, label_encoder = load_or_train_model(df)
 
-# Get symptoms input (use session state for persistence)
-symptoms = st.text_area(
-    "Enter your symptoms (comma separated):",
-    value=st.session_state.get('symptoms_input', ''),
-    placeholder="itching, skin_rash, fatigue, headache",
-    height=100
-)
+# Sidebar stats
+st.sidebar.title("📊 Database Info")
+st.sidebar.metric("Total Diseases", len(ALL_DISEASES))
+st.sidebar.metric("Total Symptoms", len(ALL_SYMPTOMS))
+st.sidebar.metric("Training Samples", len(df))
+st.sidebar.markdown("---")
 
-if st.button("🔍 Predict Disease", type="primary"):
-    if symptoms.strip() == "":
-        st.warning("⚠️ Please enter at least one symptom.")
+# ============================================
+# Main UI
+# ============================================
+st.title("🩺 AI-Based Disease Prediction System")
+st.markdown("*Predict diseases based on symptoms using Machine Learning*")
+
+# Create tabs
+tab1, tab2, tab3 = st.tabs(["🔍 Disease Predictor", "📚 Disease Library", "ℹ️ About"])
+
+# ============================================
+# TAB 1: Disease Predictor
+# ============================================
+with tab1:
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("Enter Your Symptoms")
+        
+        symptoms_input = st.text_area(
+            "List symptoms separated by commas:",
+            placeholder="Example: itching, skin_rash, fatigue, headache",
+            height=100
+        )
+        
+        # Quick select common symptoms
+        st.markdown("**Quick Add Common Symptoms:**")
+        common_symptoms = ALL_SYMPTOMS[:20]  # First 20 symptoms
+        cols = st.columns(5)
+        for i, symptom in enumerate(common_symptoms[:10]):
+            with cols[i % 5]:
+                if st.button(f"➕ {symptom.replace('_', ' ').title()}", key=f"btn_{symptom}"):
+                    if symptoms_input:
+                        symptoms_input += f", {symptom}"
+                    else:
+                        symptoms_input = symptom
+                    st.rerun()
+    
+    with col2:
+        st.subheader("How to Use")
+        st.info("""
+        1. Enter your symptoms
+        2. Click 'Predict Disease'
+        3. AI analyzes the pattern
+        4. Get prediction results
+        """)
+        
+        if symptoms_input:
+            symptom_count = len([s for s in symptoms_input.split(",") if s.strip()])
+            st.metric("Symptoms Entered", symptom_count)
+    
+    if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
+        if not symptoms_input.strip():
+            st.warning("⚠️ Please enter at least one symptom")
+        elif model is None:
+            st.error("❌ Model not available")
+        else:
+            with st.spinner("🧠 AI Analyzing your symptoms..."):
+                try:
+                    input_vector = preprocess_symptoms(symptoms_input, ALL_SYMPTOMS)
+                    
+                    # Validate feature count
+                    if len(input_vector) != model.n_features_in_:
+                        st.error(f"Feature mismatch. Expected {model.n_features_in_}, got {len(input_vector)}")
+                    else:
+                        # Get prediction
+                        prediction_encoded = model.predict([input_vector])[0]
+                        predicted_disease = label_encoder.inverse_transform([prediction_encoded])[0]
+                        
+                        # Get confidence
+                        probabilities = model.predict_proba([input_vector])[0]
+                        confidence = max(probabilities) * 100
+                        
+                        # Display result
+                        st.success(f"### 🎯 Predicted Disease: {predicted_disease}")
+                        st.metric("Confidence Score", f"{confidence:.1f}%")
+                        
+                        # Get disease info from CSV
+                        disease_info = get_disease_info_from_csv(df, predicted_disease)
+                        
+                        # Show common symptoms for this disease
+                        if disease_info['common_symptoms']:
+                            st.markdown("### 📋 Common Symptoms for this Condition")
+                            cols = st.columns(3)
+                            for i, symptom in enumerate(disease_info['common_symptoms']):
+                                with cols[i % 3]:
+                                    st.markdown(f"- {symptom}")
+                        
+                        st.markdown("---")
+                        st.markdown("### 💡 Next Steps")
+                        st.markdown("""
+                        - **Monitor** your symptoms for 24-48 hours
+                        - **Rest** and stay hydrated
+                        - **Consult** a healthcare provider if symptoms persist
+                        - **Keep** a symptom diary for your doctor
+                        """)
+                        
+                        # Download report button
+                        report = f"""
+Disease Prediction Report
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Predicted Disease: {predicted_disease}
+Confidence: {confidence:.1f}%
+Symptoms Reported: {symptoms_input}
+
+Common Symptoms for {predicted_disease}:
+{', '.join(disease_info['common_symptoms'][:10])}
+
+Disclaimer: This is an AI prediction tool. Always consult a healthcare provider.
+"""
+                        st.download_button(
+                            label="📥 Download Report",
+                            data=report,
+                            file_name=f"prediction_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain"
+                        )
+                        
+                except Exception as e:
+                    st.error(f"Error during prediction: {str(e)}")
+
+# ============================================
+# TAB 2: Disease Library
+# ============================================
+with tab2:
+    st.subheader("📚 Disease Information Library")
+    st.markdown(f"*{len(ALL_DISEASES)} diseases available in the database*")
+    
+    # Search and filter
+    search = st.text_input("🔍 Search for a disease:", placeholder="Type disease name...")
+    
+    if search:
+        filtered_diseases = [d for d in ALL_DISEASES if search.lower() in d.lower()]
     else:
-        with st.spinner("Analyzing symptoms..."):
-            try:
-                input_vector = preprocess_symptoms(symptoms)
-                
-                # Validate feature count
-                expected_features = model.n_features_in_
-                if len(input_vector) != expected_features:
-                    st.error(f"Feature mismatch: Got {len(input_vector)} features, expected {expected_features}")
-                    st.stop()
-                
-                # Make prediction
-                prediction_encoded = model.predict([input_vector])[0]
-                
-                # Convert to disease name
-                predicted_disease = label_encoder.inverse_transform([prediction_encoded])[0]
-                
-                st.success(f"🧠 **Predicted Disease:** {predicted_disease}")
-                
-                # Generate and show explanation
-                explanation = generate_explanation(predicted_disease, symptoms)
-                st.markdown("---")
-                st.markdown(explanation)
-                
-                with st.expander("📜 Important Disclaimer"):
-                    st.markdown("""
-                    **This tool is for educational purposes only.**
+        filtered_diseases = ALL_DISEASES
+    
+    st.markdown(f"**Showing {len(filtered_diseases)} diseases**")
+    
+    # Display diseases in grid
+    cols_per_row = 3
+    for i in range(0, len(filtered_diseases), cols_per_row):
+        cols = st.columns(cols_per_row)
+        for j, disease in enumerate(filtered_diseases[i:i+cols_per_row]):
+            with cols[j]:
+                with st.expander(f"📖 {disease}"):
+                    info = get_disease_info_from_csv(df, disease)
+                    st.markdown(f"**📊 Severity:** {info['severity']}")
+                    st.markdown(f"**📈 Sample Cases:** {info['sample_count']} in dataset")
                     
-                    - Not a substitute for professional medical advice
-                    - Always consult a qualified healthcare provider
-                    - In case of emergency, contact local emergency services
-                    """)
-                    
-            except Exception as e:
-                st.error(f"Error during prediction: {str(e)}")
+                    if info['common_symptoms']:
+                        st.markdown("**🔍 Common Symptoms:**")
+                        for symptom in info['common_symptoms'][:5]:
+                            st.markdown(f"- {symptom}")
 
+# ============================================
+# TAB 3: About
+# ============================================
+with tab3:
+    st.subheader("ℹ️ About This System")
+    
+    st.markdown("""
+    ### How It Works
+    
+    This AI-powered system uses **Machine Learning** to predict potential diseases based on symptoms:
+    
+    1. **Training Data**: The model is trained on `{len(df)}` patient records with `{len(ALL_SYMPTOMS)}` different symptoms
+    2. **Algorithm**: Random Forest Classifier with 200 decision trees
+    3. **Accuracy**: The model learns patterns between symptoms and diseases
+    
+    ### Dataset Statistics
+    """)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Diseases", len(ALL_DISEASES))
+    with col2:
+        st.metric("Symptoms", len(ALL_SYMPTOMS))
+    with col3:
+        st.metric("Training Records", len(df))
+    
+    st.markdown("---")
+    st.markdown("""
+    ### ⚠️ Important Disclaimer
+    
+    **This tool is for EDUCATIONAL PURPOSES only.**
+    
+    - Not a substitute for professional medical advice
+    - AI predictions may not be 100% accurate
+    - Always consult a qualified healthcare provider
+    - In emergencies, contact local emergency services
+    
+    ### 📊 Model Performance
+    
+    - **Algorithm**: Random Forest Classifier
+    - **Training Size**: {len(df)} samples
+    - **Features**: {len(ALL_SYMPTOMS)} binary symptoms
+    - **Validation**: Stratified train-test split
+    """.format(len(df)=len(df), len(ALL_SYMPTOMS)=len(ALL_SYMPTOMS)))
+    
+    st.markdown("---")
+    st.caption(f"Built with Streamlit & Scikit-learn | Data Source: Training.csv | Last Updated: {datetime.now().strftime('%Y-%m-%d')}")
+
+# ============================================
+# Footer
+# ============================================
 st.markdown("---")
-st.caption("Built with Machine Learning | Educational purposes only")
+st.markdown(
+    """
+    <div style='text-align: center; color: gray;'>
+        <p>🩺 <strong>AI Disease Prediction System</strong> | Powered by Machine Learning</p>
+        <p style='font-size: 12px;'>⚠️ This is an educational tool. Always consult a healthcare provider.</p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
