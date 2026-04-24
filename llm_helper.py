@@ -1,21 +1,47 @@
 # llm_helper.py
 import os
+import streamlit as st
 from groq import Groq
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
-# Initialize Groq client
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Get API key from Streamlit secrets or environment variable
+def get_groq_client():
+    """Initialize Groq client with proper error handling"""
+    try:
+        # Try to get from Streamlit secrets first
+        api_key = st.secrets.get("GROQ_API_KEY")
+        
+        # If not in secrets, try environment variable
+        if not api_key:
+            api_key = os.getenv("GROQ_API_KEY")
+        
+        if not api_key:
+            return None, "GROQ_API_KEY not found. Please add it to Streamlit secrets or environment variables."
+        
+        # Initialize client without proxies parameter
+        client = Groq(api_key=api_key)
+        return client, None
+        
+    except TypeError as e:
+        if "proxies" in str(e):
+            # Version compatibility issue - try alternative initialization
+            try:
+                # Alternative initialization for older versions
+                client = Groq(
+                    api_key=api_key,
+                    base_url="https://api.groq.com/openai/v1"
+                )
+                return client, None
+            except Exception as e2:
+                return None, f"Failed to initialize Groq client: {str(e2)}"
+        else:
+            return None, f"Failed to initialize Groq client: {str(e)}"
+    except Exception as e:
+        return None, f"Failed to initialize Groq client: {str(e)}"
 
 def get_disease_info_from_llm(disease_name, feature_type="remedies"):
     """
     Get disease information using Groq LLM
-    
-    feature_type can be: "remedies", "diet", "exercise", "prevention", "awareness"
     """
-    
     prompts = {
         "remedies": f"List 5 simple home remedies for {disease_name}. Keep each remedy short and practical. Format each line with •",
         "diet": f"List 5 dietary recommendations for someone with {disease_name}. Format each line with •",
@@ -26,32 +52,31 @@ def get_disease_info_from_llm(disease_name, feature_type="remedies"):
     
     prompt = prompts.get(feature_type, prompts["remedies"])
     
-    if not GROQ_API_KEY:
-        return f"⚠️ GROQ_API_KEY not found. Please set it in environment variables."
+    client, error = get_groq_client()
+    if error:
+        return f"⚠️ {error}"
     
     try:
-        client = Groq(api_key=GROQ_API_KEY)
-        
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful health assistant. Provide accurate, practical health information. Never give medical advice. Always encourage consulting healthcare providers."
+                    "content": "You are a helpful health assistant. Provide accurate, practical health information. Never give medical advice. Always encourage consulting healthcare providers. Keep responses concise and factual."
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            temperature=0.0,  # Lower temperature for consistent, factual responses
+            temperature=0.0,
             max_tokens=500
         )
         
         return completion.choices[0].message.content
         
     except Exception as e:
-        return f"❌ Error fetching information: {str(e)}\n\nPlease consult a healthcare provider for accurate medical advice."
+        return f"❌ Error: {str(e)}\n\nPlease consult a healthcare provider for accurate medical advice."
 
 def get_complete_health_advice(disease_name):
     """Get complete health advice from Groq LLM"""
@@ -87,12 +112,11 @@ def get_complete_health_advice(disease_name):
 
 ⚠️ IMPORTANT: Keep responses practical and educational. Always include disclaimer to consult healthcare provider."""
     
-    if not GROQ_API_KEY:
-        return f"⚠️ GROQ_API_KEY not found. Please set it in environment variables.\n\nPredicted disease: {disease_name}\n\nPlease consult a healthcare provider for medical advice."
+    client, error = get_groq_client()
+    if error:
+        return f"⚠️ {error}\n\n**Predicted Disease:** {disease_name}\n\nPlease consult a healthcare provider for medical advice."
     
     try:
-        client = Groq(api_key=GROQ_API_KEY)
-        
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
@@ -105,7 +129,7 @@ def get_complete_health_advice(disease_name):
                     "content": prompt
                 }
             ],
-            temperature=0.0,  # Consistent, factual responses
+            temperature=0.0,
             max_tokens=800
         )
         
@@ -117,35 +141,30 @@ def get_complete_health_advice(disease_name):
 def get_symptom_analysis(symptoms_list, predicted_disease, confidence):
     """Get AI analysis of symptoms"""
     
-    prompt = f"""A patient reported these symptoms: {', '.join(symptoms_list)}.
-The AI predicted: {predicted_disease} with {confidence:.1f}% confidence.
-
-Provide a brief analysis (2-3 sentences) explaining why these symptoms match this condition.
-Keep it educational, not diagnostic."""
+    prompt = f"A patient reported these symptoms: {', '.join(symptoms_list)}.\nThe AI predicted: {predicted_disease} with {confidence:.1f}% confidence.\n\nProvide a brief analysis (2-3 sentences) explaining why these symptoms match this condition.\nKeep it educational, not diagnostic."
     
-    if not GROQ_API_KEY:
-        return f"Based on the symptoms reported, the AI model suggests {predicted_disease} with {confidence:.1f}% confidence."
+    client, error = get_groq_client()
+    if error:
+        return f"The AI model has identified {predicted_disease} as the most likely condition based on the symptoms reported with {confidence:.1f}% confidence."
     
     try:
-        client = Groq(api_key=GROQ_API_KEY)
-        
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a medical educator. Explain symptom-disease relationships in simple terms."
+                    "content": "You are a medical educator. Explain symptom-disease relationships in simple, educational terms. Never diagnose or give treatment advice."
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            temperature=0.3,
-            max_tokens=200
+            temperature=0.0,
+            max_tokens=250
         )
         
         return completion.choices[0].message.content
         
     except Exception as e:
-        return f"The AI model has identified {predicted_disease} as the most likely condition based on the symptoms reported."
+        return f"The AI model has identified {predicted_disease} as the most likely condition based on the symptoms reported with {confidence:.1f}% confidence."
