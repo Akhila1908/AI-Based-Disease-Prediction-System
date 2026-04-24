@@ -17,92 +17,45 @@ warnings.filterwarnings('ignore')
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Full symptom list (132 symptoms)
+# Extract symptoms from Training.csv dynamically
 # ============================================
-ALL_SYMPTOMS = [
-    'itching', 'skin_rash', 'nodal_skin_eruptions', 'continuous_sneezing', 'shivering',
-    'chills', 'joint_pain', 'stomach_pain', 'acidity', 'ulcers_on_tongue',
-    'muscle_wasting', 'vomiting', 'burning_micturition', 'spotting_ urination',  # Note the space
-    'fatigue', 'weight_gain', 'anxiety', 'cold_hands_and_feets', 'mood_swings',
-    'weight_loss', 'restlessness', 'lethargy', 'patches_in_throat',
-    'irregular_sugar_level', 'cough', 'high_fever', 'sunken_eyes', 'breathlessness',
-    'sweating', 'dehydration', 'indigestion', 'headache', 'yellowish_skin',
-    'dark_urine', 'nausea', 'loss_of_appetite', 'pain_behind_the_eyes', 'back_pain',
-    'constipation', 'abdominal_pain', 'diarrhoea', 'mild_fever', 'yellow_urine',
-    'yellowing_of_eyes', 'acute_liver_failure', 'fluid_overload', 'swelling_of_stomach',
-    'swelled_lymph_nodes', 'malaise', 'blurred_and_distorted_vision', 'phlegm',
-    'throat_irritation', 'redness_of_eyes', 'sinus_pressure', 'runny_nose',
-    'congestion', 'chest_pain', 'weakness_in_limbs', 'fast_heart_rate',
-    'pain_during_bowel_movements', 'pain_in_anal_region', 'bloody_stool',
-    'irritation_in_anus', 'neck_pain', 'dizziness', 'cramps', 'bruising',
-    'obesity', 'swollen_legs', 'swollen_blood_vessels', 'puffy_face_and_eyes',
-    'enlarged_thyroid', 'brittle_nails', 'swollen_extremeties', 'excessive_hunger',
-    'extra_marital_contacts', 'drying_and_tingling_lips', 'slurred_speech',
-    'knee_pain', 'hip_joint_pain', 'muscle_weakness', 'stiff_neck', 'swelling_joints',
-    'movement_stiffness', 'spinning_movements', 'loss_of_balance', 'unsteadiness',
-    'weakness_of_one_body_side', 'loss_of_smell', 'bladder_discomfort',
-    'foul_smell_of urine', 'continuous_feel_of_urine', 'passage_of_gases',
-    'internal_itching', 'toxic_look_(typhos)', 'depression', 'irritability',
-    'muscle_pain', 'altered_sensorium', 'red_spots_over_body', 'belly_pain',
-    'abnormal_menstruation', 'dischromic _patches', 'watering_from_eyes',
-    'increased_appetite', 'polyuria', 'family_history', 'mucoid_sputum',
-    'rusty_sputum', 'lack_of_concentration', 'visual_disturbances',
-    'receiving_blood_transfusion', 'receiving_unsterile_injections', 'coma',
-    'stomach_bleeding', 'distention_of_abdomen', 'history_of_alcohol_consumption',
-    'blood_in_sputum', 'prominent_veins_on_calf', 'palpitations',
-    'painful_walking', 'pus_filled_pimples', 'blackheads', 'scurring',
-    'skin_peeling', 'silver_like_dusting', 'small_dents_in_nails',
-    'inflammatory_nails', 'blister', 'red_sore_around_nose', 'yellow_crust_ooze'
-]
+@st.cache_data
+def get_symptom_list():
+    """Extract symptom names directly from training data"""
+    csv_path = BASE_DIR / 'Training.csv'
+    if not csv_path.exists():
+        st.error("❌ Training.csv not found! Please upload the dataset.")
+        return None
+    
+    df = pd.read_csv(csv_path)
+    # Drop the target column 'prognosis' and any unnamed columns
+    symptom_columns = [col for col in df.columns if col not in ['prognosis', 'Unnamed: 133']]
+    return symptom_columns
 
-# Verify count
-print(f"Number of symptoms: {len(ALL_SYMPTOMS)}")  # Should be 132
-# ============================================
-# Disease information
-# ============================================
-DISEASE_INFO = {
-    "Fungal infection": {"severity": "Mild to Moderate", "remedies": "Keep area dry, use antifungal cream, maintain hygiene"},
-    "Allergy": {"severity": "Mild", "remedies": "Avoid allergens, take antihistamines, use cold compress"},
-    "GERD": {"severity": "Moderate", "remedies": "Avoid spicy food, eat small meals, don't lie down after eating"},
-    "Chronic cholestasis": {"severity": "Severe", "remedies": "Medical attention required, follow doctor's advice"},
-    "Drug Reaction": {"severity": "Moderate to Severe", "remedies": "Stop suspected medication, consult doctor immediately"},
-    "Peptic ulcer diseae": {"severity": "Moderate", "remedies": "Avoid NSAIDs, eat bland food, manage stress"},
-    "AIDS": {"severity": "Severe", "remedies": "Medical care required, ART treatment, healthy lifestyle"},
-    "Diabetes ": {"severity": "Chronic", "remedies": "Monitor blood sugar, healthy diet, regular exercise"},
-    "Gastroenteritis": {"severity": "Mild to Moderate", "remedies": "Stay hydrated, rest, BRAT diet"},
-    "Bronchial Asthma": {"severity": "Moderate", "remedies": "Use inhaler, avoid triggers, keep environment clean"},
-    "Hypertension ": {"severity": "Chronic", "remedies": "Low salt diet, regular exercise, stress management"},
-    "Migraine": {"severity": "Moderate", "remedies": "Rest in dark room, hydration, avoid triggers"},
-    "Cervical spondylosis": {"severity": "Chronic", "remedies": "Neck exercises, good posture, physical therapy"},
-    "Paralysis (brain hemorrhage)": {"severity": "Severe", "remedies": "Immediate medical attention, physiotherapy"},
-    "Jaundice": {"severity": "Moderate", "remedies": "Rest, hydration, avoid fatty foods"},
-    "Malaria": {"severity": "Severe", "remedies": "Seek medical care, anti-malarial drugs, rest"},
-    "Chicken pox": {"severity": "Mild to Moderate", "remedies": "Rest, calamine lotion, avoid scratching"},
-    "Dengue": {"severity": "Severe", "remedies": "Hydration, rest, medical monitoring"},
-    "Typhoid": {"severity": "Severe", "remedies": "Medical care, antibiotics, rest"},
-    "hepatitis A": {"severity": "Moderate", "remedies": "Rest, hydration, avoid alcohol"},
-    "Hepatitis B": {"severity": "Chronic", "remedies": "Medical care, vaccination, avoid alcohol"},
-    "Hepatitis C": {"severity": "Chronic", "remedies": "Medical treatment, avoid alcohol"},
-    "Hepatitis D": {"severity": "Chronic", "remedies": "Medical supervision required"},
-    "Hepatitis E": {"severity": "Moderate", "remedies": "Rest, hydration, medical care"},
-    "Alcoholic hepatitis": {"severity": "Severe", "remedies": "Stop alcohol, medical care, nutrition"},
-    "Tuberculosis": {"severity": "Severe", "remedies": "Medical treatment, complete medication course"},
-    "Common Cold": {"severity": "Mild", "remedies": "Rest, fluids, honey for throat"},
-    "Pneumonia": {"severity": "Severe", "remedies": "Medical care, rest, hydration"},
-    "Dimorphic hemmorhoids(piles)": {"severity": "Moderate", "remedies": "Fiber-rich diet, hydration, sitz bath"},
-    "Heart attack": {"severity": "Emergency", "remedies": "Call emergency, chew aspirin if advised"},
-    "Varicose veins": {"severity": "Mild to Moderate", "remedies": "Exercise, compression stockings, elevate legs"},
-    "Hypothyroidism": {"severity": "Chronic", "remedies": "Thyroid medication, healthy diet"},
-    "Hyperthyroidism": {"severity": "Chronic", "remedies": "Medical management, avoid iodine-rich foods"},
-    "Hypoglycemia": {"severity": "Moderate", "remedies": "Eat small frequent meals, monitor blood sugar"},
-    "Osteoarthristis": {"severity": "Chronic", "remedies": "Exercise, weight management, pain management"},
-    "Arthritis": {"severity": "Chronic", "remedies": "Exercise, anti-inflammatory diet, joint care"},
-    "(vertigo) Paroymsal  Positional Vertigo": {"severity": "Moderate", "remedies": "Epley maneuver, avoid sudden movements"},
-    "Acne": {"severity": "Mild", "remedies": "Gentle cleansing, avoid picking, OTC treatments"},
-    "Urinary tract infection": {"severity": "Moderate", "remedies": "Hydration, cranberry juice, medical care"},
-    "Psoriasis": {"severity": "Chronic", "remedies": "Moisturize, avoid triggers, medical treatment"},
-    "Impetigo": {"severity": "Mild", "remedies": "Antibiotic cream, keep area clean"},
-}
+@st.cache_data
+def get_disease_info_from_data():
+    """Extract disease descriptions from training data if available"""
+    csv_path = BASE_DIR / 'Training.csv'
+    if not csv_path.exists():
+        return {}
+    
+    df = pd.read_csv(csv_path)
+    diseases = df['prognosis'].unique()
+    # Return basic info for each disease
+    return {disease: {"severity": "Unknown", "remedies": "Consult a healthcare provider"} 
+            for disease in diseases}
+
+# Get symptoms from the actual data
+ALL_SYMPTOMS = get_symptom_list()
+
+if ALL_SYMPTOMS is None:
+    st.stop()
+
+# Get disease info
+DISEASE_INFO = get_disease_info_from_data()
+
+# Display count for debugging
+st.sidebar.write(f"📊 Loaded {len(ALL_SYMPTOMS)} symptoms from training data")
 
 # ============================================
 # Load or train model
@@ -122,7 +75,7 @@ def load_or_train_model():
         except Exception as e:
             st.warning(f"Could not load existing model: {e}")
     
-    # Train new model (only if Training.csv exists)
+    # Train new model
     csv_path = BASE_DIR / 'Training.csv'
     if not csv_path.exists():
         st.error("❌ Training.csv not found! Please upload the dataset.")
@@ -167,18 +120,32 @@ def load_or_train_model():
 # Helper functions
 # ============================================
 def preprocess_symptoms(user_input):
-    """Convert user input to feature vector"""
+    """Convert user input to feature vector using actual symptom list"""
     if not user_input.strip():
         return [0] * len(ALL_SYMPTOMS)
     
+    # Clean user input
     user_symptoms = [s.strip().lower().replace(' ', '_') for s in user_input.split(",")]
+    
+    # Create feature vector
     result = []
     for symptom in ALL_SYMPTOMS:
-        matched = any(
-            us == symptom or us.replace('_', ' ') == symptom.replace('_', ' ')
-            for us in user_symptoms
-        )
+        # Clean symptom name for comparison (remove extra spaces)
+        clean_symptom = symptom.strip().lower().replace('  ', ' ')
+        matched = False
+        
+        for us in user_symptoms:
+            # Try exact match and normalized match
+            if us == clean_symptom or us.replace('_', ' ') == clean_symptom.replace('_', ' '):
+                matched = True
+                break
+        
         result.append(1 if matched else 0)
+    
+    # Debug info
+    st.sidebar.write(f"📝 Feature vector length: {len(result)}")
+    st.sidebar.write(f"✅ Non-zero features: {sum(result)}")
+    
     return result
 
 def generate_explanation(disease, symptoms):
@@ -194,10 +161,10 @@ You reported: {symptoms}
 This combination suggests {disease}.
 
 **3. Severity Level:**  
-🟡 **{info.get('severity', 'Unknown')}**
+🟡 **{info.get('severity', 'Consult Doctor')}**
 
 **4. General Home Care Suggestions:**  
-• {info.get('remedies', 'Consult a healthcare provider')}
+• {info.get('remedies', 'Consult a healthcare provider for proper diagnosis')}
 
 **5. When to Consult a Doctor:**  
 • If symptoms persist or worsen  
@@ -225,17 +192,25 @@ st.sidebar.write("""
 2. Click 'Predict Disease'
 3. Get the predicted disease
 
-**Example:** itching, skin_rash, fatigue
+**Example symptoms you can try:**  
+itching, skin_rash, fatigue, headache, nausea, vomiting
 
-**Note:** Use symptom names as shown in the dataset.
+**Note:** Use symptom names as they appear in the dataset.
 """)
 
 if model is None or label_encoder is None:
     st.error("❌ Model not available. Please check that Training.csv is in the repository.")
     st.stop()
 
+# Example symptoms button
+if st.sidebar.button("📋 Load Example Symptoms"):
+    st.session_state['symptoms_input'] = "itching, skin_rash, fatigue"
+    st.rerun()
+
+# Get symptoms input (use session state for persistence)
 symptoms = st.text_area(
     "Enter your symptoms (comma separated):",
+    value=st.session_state.get('symptoms_input', ''),
     placeholder="itching, skin_rash, fatigue, headache",
     height=100
 )
@@ -247,6 +222,12 @@ if st.button("🔍 Predict Disease", type="primary"):
         with st.spinner("Analyzing symptoms..."):
             try:
                 input_vector = preprocess_symptoms(symptoms)
+                
+                # Validate feature count
+                expected_features = model.n_features_in_
+                if len(input_vector) != expected_features:
+                    st.error(f"Feature mismatch: Got {len(input_vector)} features, expected {expected_features}")
+                    st.stop()
                 
                 # Make prediction
                 prediction_encoded = model.predict([input_vector])[0]
