@@ -11,7 +11,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
 # -------------------------------------------------
-# Load trained model (use relative path)
+# Load trained model and label encoder
 # -------------------------------------------------
 @st.cache_resource
 def load_model():
@@ -21,7 +21,17 @@ def load_model():
         return None
     return joblib.load(model_path)
 
+@st.cache_resource
+def load_label_encoder():
+    le_path = BASE_DIR / "label_encoder.joblib"
+    if not le_path.exists():
+        st.error(f"Label encoder file not found at {le_path}")
+        return None
+    return joblib.load(le_path)
+
+# Load both
 model = load_model()
+label_encoder = load_label_encoder()
 
 # -------------------------------------------------
 # Full symptom list (must match training)
@@ -49,7 +59,7 @@ ALL_SYMPTOMS = [
     'movement_stiffness','spinning_movements','loss_of_balance','unsteadiness',
     'weakness_of_one_body_side','loss_of_smell','bladder_discomfort',
     'foul_smell_of urine','continuous_feel_of_urine','passage_of_gases',
-    'internal_itching','toxic_look_(typhos)','depression','irritability',
+    'internal_ itching','toxic_look_(typhos)','depression','irritability',
     'muscle_pain','altered_sensorium','red_spots_over_body','belly_pain',
     'abnormal_menstruation','dischromic _patches','watering_from_eyes',
     'increased_appetite','polyuria','family_history','mucoid_sputum',
@@ -212,11 +222,16 @@ with col1:
             with st.spinner("Analyzing symptoms..."):
                 input_data = preprocess_symptoms(symptoms)
                 
-                if model is None:
-                    st.error("Model not loaded. Please check the model file.")
+                if model is None or label_encoder is None:
+                    st.error("Model or label encoder not loaded. Please check the files.")
                 else:
                     try:
-                        predicted_disease = model.predict([input_data])[0]
+                        # =============================================
+                        # HERE IS WHERE THE LABEL ENCODER IS USED:
+                        # =============================================
+                        predicted_encoded = model.predict([input_data])[0]
+                        predicted_disease = label_encoder.inverse_transform([predicted_encoded])[0]
+                        # =============================================
                         
                         st.success(f"🧠 **Predicted Disease:** {predicted_disease}")
                         
@@ -258,5 +273,3 @@ with col1:
 # Footer
 st.markdown("---")
 st.caption("Built with Machine Learning | For educational purposes only")
-
-# Run with: streamlit run ml_app.py
