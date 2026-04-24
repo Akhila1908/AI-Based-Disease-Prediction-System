@@ -16,86 +16,9 @@ import numpy as np
 import joblib
 from pathlib import Path
 import warnings
-import requests
-import json
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
-
-# ============================================
-# Ollama Setup - No API key needed!
-# ============================================
-
-def check_ollama():
-    """Check if Ollama is running"""
-    try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=2)
-        return response.status_code == 200
-    except:
-        return False
-
-def get_disease_info_from_ollama(disease_name, symptoms_list, confidence):
-    """Get disease-specific information using Ollama"""
-    
-    prompt = f"""You are a helpful medical assistant. Provide health information for {disease_name}.
-
-Symptoms reported: {', '.join(symptoms_list)}
-Confidence: {confidence:.1f}%
-
-Provide EXACTLY this format (use simple language, no markdown):
-
-HOME REMEDIES:
-1. [specific remedy 1]
-2. [specific remedy 2]
-3. [specific remedy 3]
-4. [specific remedy 4]
-5. [specific remedy 5]
-
-DIET RECOMMENDATIONS:
-1. [diet tip 1]
-2. [diet tip 2]
-3. [diet tip 3]
-4. [diet tip 4]
-5. [diet tip 5]
-
-PREVENTION TIPS:
-1. [prevention tip 1]
-2. [prevention tip 2]
-3. [prevention tip 3]
-4. [prevention tip 4]
-5. [prevention tip 5]
-
-WHEN TO SEE A DOCTOR:
-- [warning sign 1]
-- [warning sign 2]
-- [warning sign 3]
-
-Keep responses practical and specific to {disease_name}. Always recommend consulting a doctor."""
-
-    try:
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": "phi",  # or "mistral", "llama2", "tinyllama"
-                "prompt": prompt,
-                "stream": False,
-                "temperature": 0.3,
-                "max_tokens": 800
-            },
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("response", "No response from Ollama")
-        else:
-            return None
-            
-    except requests.exceptions.ConnectionError:
-        return None
-    except Exception as e:
-        st.error(f"Ollama Error: {str(e)[:100]}")
-        return None
 
 # ============================================
 # Load data and train model
@@ -166,6 +89,100 @@ def preprocess_symptoms(user_input, all_symptoms):
     return result
 
 # ============================================
+# Groq LLM with direct API call (no library)
+# ============================================
+
+def get_health_info_from_groq(disease_name, symptoms_list, confidence):
+    """Get health information using direct Groq API call"""
+    
+    api_key = None
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY")
+    except:
+        pass
+    
+    if not api_key:
+        return None
+    
+    # Using requests instead of groq library to avoid version issues
+    import requests
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"""You are a medical information assistant. Provide health information for {disease_name}.
+
+Symptoms reported: {', '.join(symptoms_list)}
+Confidence: {confidence:.1f}%
+
+Provide EXACTLY this format:
+
+🌿 HOME REMEDIES:
+• Remedy 1
+• Remedy 2
+• Remedy 3
+• Remedy 4
+• Remedy 5
+
+🥗 DIET RECOMMENDATIONS:
+• Diet tip 1
+• Diet tip 2
+• Diet tip 3
+• Diet tip 4
+• Diet tip 5
+
+🛡️ PREVENTION TIPS:
+• Prevention tip 1
+• Prevention tip 2
+• Prevention tip 3
+• Prevention tip 4
+• Prevention tip 5
+
+🏃‍♂️ EXERCISE GUIDELINES:
+[2 sentences about safe exercises]
+
+📚 WHEN TO SEE A DOCTOR:
+- Warning sign 1
+- Warning sign 2
+- Warning sign 3
+
+Keep responses practical and specific to {disease_name}. Use simple language. Never give medical advice."""
+
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": f"You are a medical information assistant. Provide specific information about {disease_name}. Never give medical advice."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 800
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        else:
+            st.error(f"API Error: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        st.error(f"Request Error: {str(e)[:100]}")
+        return None
+
+# ============================================
 # Load everything
 # ============================================
 
@@ -177,8 +194,11 @@ with st.spinner("🔄 Loading application..."):
     else:
         model, label_encoder, ALL_SYMPTOMS = None, None, None
 
-# Check Ollama status
-ollama_available = check_ollama()
+# Check if Groq API key is available
+try:
+    groq_key_available = bool(st.secrets.get("GROQ_API_KEY"))
+except:
+    groq_key_available = False
 
 # ============================================
 # UI
@@ -196,13 +216,13 @@ with st.sidebar:
     
     st.write("---")
     
-    # Check Ollama status
-    if ollama_available:
-        st.success("✅ Ollama AI Ready")
-        st.caption("Model: phi (for health information)")
+    # Check Groq status
+    if groq_key_available:
+        st.success("✅ Groq AI Ready")
+        st.caption("Will provide home remedies & health tips")
     else:
-        st.warning("⚠️ Ollama not available")
-        st.caption("Will show basic info from training data")
+        st.warning("⚠️ Groq AI not configured")
+        st.info("Add GROQ_API_KEY in Settings → Secrets")
     
     st.write("---")
     st.write("### 📝 Instructions")
@@ -255,15 +275,16 @@ if predict_clicked:
                 
                 st.markdown("---")
                 
-                # Get Ollama information if available
-                if ollama_available:
+                # Get health information from Groq if available
+                if groq_key_available:
                     with st.spinner(f"🤖 Getting health information for {predicted_disease}..."):
-                        info = get_disease_info_from_ollama(predicted_disease, symptom_list, confidence)
+                        info = get_health_info_from_groq(predicted_disease, symptom_list, confidence)
                         if info:
                             st.markdown(info)
                         else:
-                            st.warning("Could not fetch information from Ollama. Make sure Ollama is running.")
-                            # Show fallback info from training data
+                            st.warning("Could not fetch information. Please try again.")
+                            
+                            # Show fallback - common symptoms from training data
                             disease_data = df[df['prognosis'] == predicted_disease]
                             common_symptoms = []
                             for sym in ALL_SYMPTOMS[:20]:
@@ -277,9 +298,10 @@ if predict_clicked:
                                     with cols[i % 3]:
                                         st.write(f"- {sym}")
                 else:
-                    st.info("💡 **Ollama not available.** For home remedies and health tips, install Ollama locally or add GROQ_API_KEY to secrets.")
+                    st.info("💡 **Groq AI not available.** Add your GROQ_API_KEY to get home remedies, diet tips, and prevention advice.")
+                    st.caption("Go to Settings → Secrets → Add: GROQ_API_KEY = 'your_key_here'")
                     
-                    # Show common symptoms from training data as fallback
+                    # Show common symptoms from training data
                     disease_data = df[df['prognosis'] == predicted_disease]
                     common_symptoms = []
                     for sym in ALL_SYMPTOMS[:20]:
