@@ -21,16 +21,93 @@ warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
-# Import LLM functions
-try:
-    from llm_helper import get_complete_health_advice, get_symptom_analysis
-    LLM_AVAILABLE = True
-except Exception as e:
-    LLM_AVAILABLE = False
-    st.warning(f"LLM features not available: {str(e)}")
+# ============================================
+# Groq LLM Setup
+# ============================================
+
+def get_groq_client():
+    """Initialize Groq client"""
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY")
+        if not api_key:
+            api_key = os.getenv("GROQ_API_KEY")
+        
+        if not api_key:
+            return None, "GROQ_API_KEY not found"
+        
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        return client, None
+        
+    except Exception as e:
+        return None, str(e)
+
+def get_disease_info_from_groq(disease_name, symptoms_list, confidence):
+    """Get disease-specific information from Groq LLM"""
+    
+    client, error = get_groq_client()
+    
+    if error or client is None:
+        return None
+    
+    prompt = f"""Provide health information for {disease_name} based on these symptoms: {', '.join(symptoms_list)} (confidence: {confidence:.1f}%)
+
+Provide ONLY in this exact format:
+
+🌿 HOME REMEDIES:
+• [remedy 1]
+• [remedy 2]
+• [remedy 3]
+• [remedy 4]
+• [remedy 5]
+
+🥗 DIET RECOMMENDATIONS:
+• [diet 1]
+• [diet 2]
+• [diet 3]
+• [diet 4]
+• [diet 5]
+
+🛡️ PREVENTION TIPS:
+• [tip 1]
+• [tip 2]
+• [tip 3]
+• [tip 4]
+• [tip 5]
+
+🏃‍♂️ EXERCISE GUIDELINES:
+[2 sentences about exercise]
+
+📚 WHEN TO SEE A DOCTOR:
+[2-3 warning signs]
+
+Keep responses specific to {disease_name}. Use practical, actionable advice."""
+
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"You are a medical information assistant. Provide specific, practical information about {disease_name}. Never give medical advice. Always recommend consulting doctors."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3,
+            max_tokens=800
+        )
+        
+        return completion.choices[0].message.content
+        
+    except Exception as e:
+        st.error(f"Groq API Error: {str(e)}")
+        return None
 
 # ============================================
-# Load data from CSV
+# Load data from CSV only
 # ============================================
 @st.cache_data
 def load_training_data():
@@ -62,16 +139,14 @@ def load_or_train_model(df):
     if df is None:
         return None, None
     
-    # Try to load existing model
     if model_path.exists() and encoder_path.exists():
         try:
             model = joblib.load(model_path)
             le = joblib.load(encoder_path)
             return model, le
         except Exception as e:
-            st.warning(f"Could not load existing model: {e}")
+            st.warning(f"Could not load model: {e}")
     
-    # Train new model
     with st.spinner("🔄 Training AI model from dataset..."):
         try:
             X = df.drop('prognosis', axis=1)
@@ -92,19 +167,16 @@ def load_or_train_model(df):
             
             pipeline.fit(X, y_encoded)
             
-            # Save models
             joblib.dump(pipeline, model_path)
             joblib.dump(le, encoder_path)
             
-            st.success("✅ Model trained successfully!")
             return pipeline, le
             
         except Exception as e:
-            st.error(f"❌ Training failed: {str(e)}")
+            st.error(f"Training failed: {str(e)}")
             return None, None
 
 def preprocess_symptoms(user_input, all_symptoms):
-    """Convert user input to feature vector"""
     if not user_input.strip() or not all_symptoms:
         return [0] * 132
     
@@ -130,113 +202,89 @@ ALL_SYMPTOMS = get_symptom_list(df)
 ALL_DISEASES = get_disease_list(df)
 model, label_encoder = load_or_train_model(df)
 
+# Check Groq availability
+client, _ = get_groq_client()
+GROQ_AVAILABLE = client is not None
+
 # ============================================
 # UI
 # ============================================
 st.title("🩺 AI Disease Prediction System")
-st.markdown("*Powered by Machine Learning + Groq AI*")
 
 # Sidebar
 with st.sidebar:
-    st.write("### 📊 Database Statistics")
+    st.write("### 📊 Dataset Info")
     st.write(f"**Diseases:** {len(ALL_DISEASES)}")
     st.write(f"**Symptoms:** {len(ALL_SYMPTOMS)}")
     st.write(f"**Training Records:** {len(df)}")
     
     st.write("---")
-    st.write("### 🤖 AI Features")
-    if LLM_AVAILABLE:
-        try:
-            from llm_helper import get_groq_client
-            client, error = get_groq_client()
-            if error:
-                st.warning(f"⚠️ Groq AI: {error[:50]}...")
-            else:
-                st.success("✅ Groq AI is ACTIVE")
-                st.caption("Model: Llama 3.3 70B")
-                st.caption("Temperature: 0.0")
-        except:
-            st.warning("⚠️ Groq AI needs configuration")
+    if GROQ_AVAILABLE:
+        st.success("✅ Groq AI Ready")
+        st.caption("Will provide disease-specific information")
     else:
-        st.warning("⚠️ Groq AI not available")
+        st.warning("⚠️ Groq AI not configured")
+        st.caption("Add GROQ_API_KEY to secrets for health info")
     
     st.write("---")
     st.write("### 📝 How to Use")
     st.write("1. Enter symptoms (comma separated)")
-    st.write("2. Click Predict Disease")
-    st.write("3. Get AI-powered health info")
-    
-    st.write("---")
-    if st.button("📋 Load Example"):
-        st.session_state['symptoms_input'] = "itching, skin_rash"
-        st.rerun()
+    st.write("2. Click Predict")
+    st.write("3. Get disease-specific health info")
 
 # Main input
 symptoms_input = st.text_area(
     "**Enter your symptoms (comma separated):**",
-    value=st.session_state.get('symptoms_input', ''),
     placeholder="Example: itching, skin_rash, fatigue, headache",
     height=100
 )
 
-# Predict button
 if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
     if not symptoms_input.strip():
         st.warning("⚠️ Please enter at least one symptom")
     elif model is None:
         st.error("❌ Model not available")
     else:
-        with st.spinner("🧠 Analyzing symptoms..."):
+        with st.spinner("🧠 Analyzing..."):
             try:
-                # Preprocess and predict
+                # Get prediction
                 input_vector = preprocess_symptoms(symptoms_input, ALL_SYMPTOMS)
                 pred_encoded = model.predict([input_vector])[0]
                 predicted_disease = label_encoder.inverse_transform([pred_encoded])[0]
                 
-                # Get confidence
                 probs = model.predict_proba([input_vector])[0]
                 confidence = max(probs) * 100
                 
-                # Display prediction
-                st.success(f"### 🎯 Predicted Disease: {predicted_disease}")
-                st.metric("Confidence Score", f"{confidence:.1f}%")
-                
-                # Show reported symptoms
                 symptom_list = [s.strip() for s in symptoms_input.split(",") if s.strip()]
-                st.write(f"**Reported Symptoms:** {', '.join(symptom_list)}")
+                
+                # Display prediction
+                st.success(f"### 🎯 Predicted: {predicted_disease}")
+                st.metric("Confidence", f"{confidence:.1f}%")
+                st.write(f"**Symptoms reported:** {', '.join(symptom_list)}")
                 
                 st.markdown("---")
                 
-                # Get AI analysis if available
-                if LLM_AVAILABLE:
-                    with st.spinner("🤖 Generating health information..."):
-                        # Get symptom analysis
-                        try:
-                            analysis = get_symptom_analysis(symptom_list, predicted_disease, confidence)
-                            if analysis:
-                                st.info(f"**📋 Analysis:** {analysis}")
-                        except Exception as e:
-                            st.warning(f"Could not generate analysis: {str(e)}")
+                # Get disease-specific information from Groq ONLY
+                if GROQ_AVAILABLE:
+                    with st.spinner(f"🤖 Getting information about {predicted_disease}..."):
+                        disease_info = get_disease_info_from_groq(predicted_disease, symptom_list, confidence)
                         
-                        # Get complete health advice
-                        try:
-                            advice = get_complete_health_advice(predicted_disease)
-                            if advice:
-                                st.markdown(advice)
-                        except Exception as e:
-                            st.warning(f"Could not generate health advice: {str(e)}")
+                        if disease_info:
+                            st.markdown(disease_info)
+                        else:
+                            st.error(f"Could not fetch information for {predicted_disease}. Please try again.")
                 else:
-                    st.info("💡 **Note:** Configure Groq AI for detailed health recommendations.")
+                    st.info("💡 **Groq AI not configured.** Add GROQ_API_KEY to Streamlit secrets to get home remedies, diet tips, and prevention advice.")
                     
-                    # Show common symptoms from dataset
+                    # Show basic info from CSV only
                     disease_data = df[df['prognosis'] == predicted_disease]
                     common_symptoms = []
-                    for sym in ALL_SYMPTOMS[:30]:
+                    for sym in ALL_SYMPTOMS[:20]:
                         if len(disease_data) > 0 and disease_data[sym].mean() > 0.5:
                             common_symptoms.append(sym.replace('_', ' ').title())
                     
                     if common_symptoms:
-                        st.write("**Common symptoms for this condition:**")
+                        st.write("**Common symptoms for this condition (from training data):**")
                         cols = st.columns(3)
                         for i, sym in enumerate(common_symptoms[:9]):
                             with cols[i % 3]:
@@ -245,25 +293,12 @@ if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
                 # Disclaimer
                 st.markdown("---")
                 st.warning("""
-                ⚠️ **Medical Disclaimer:** 
-                - This is an **educational tool only**
-                - Not a substitute for professional medical advice
-                - Always consult a qualified healthcare provider
-                - In emergencies, contact local emergency services
+                ⚠️ **Medical Disclaimer:** Educational purpose only.  
+                Always consult a healthcare provider for medical advice.
                 """)
                 
             except Exception as e:
-                st.error(f"Error during prediction: {str(e)}")
+                st.error(f"Error: {str(e)}")
 
-# Footer
 st.markdown("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: gray;'>
-        <p>🩺 <strong>AI Disease Prediction System</strong></p>
-        <p style='font-size: 12px;'>Model: Random Forest | AI: Groq Llama 3.3 70B</p>
-        <p style='font-size: 12px;'>⚠️ Educational purpose only</p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.caption("AI Model: Random Forest | Powered by Machine Learning")
