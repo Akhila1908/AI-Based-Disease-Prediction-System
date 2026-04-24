@@ -17,21 +17,17 @@ import joblib
 from pathlib import Path
 import warnings
 import os
-from dotenv import load_dotenv
 warnings.filterwarnings('ignore')
-
-# Load environment variables
-load_dotenv()
 
 BASE_DIR = Path(__file__).parent
 
 # Import LLM functions
 try:
     from llm_helper import get_complete_health_advice, get_symptom_analysis
-    LLM_AVAILABLE = True if os.getenv("GROQ_API_KEY") else False
-except ImportError:
+    LLM_AVAILABLE = True
+except Exception as e:
     LLM_AVAILABLE = False
-    st.warning("LLM features not available. Please install groq and set GROQ_API_KEY.")
+    st.warning(f"LLM features not available: {str(e)}")
 
 # ============================================
 # Load data from CSV
@@ -40,7 +36,7 @@ except ImportError:
 def load_training_data():
     csv_path = BASE_DIR / 'Training.csv'
     if not csv_path.exists():
-        st.error("❌ Training.csv not found! Please upload the dataset.")
+        st.error("❌ Training.csv not found!")
         return None
     df = pd.read_csv(csv_path)
     df = df.drop(columns=['Unnamed: 133'], errors='ignore')
@@ -73,7 +69,7 @@ def load_or_train_model(df):
             le = joblib.load(encoder_path)
             return model, le
         except Exception as e:
-            st.warning(f"Could not load model: {e}")
+            st.warning(f"Could not load existing model: {e}")
     
     # Train new model
     with st.spinner("🔄 Training AI model from dataset..."):
@@ -150,30 +146,36 @@ with st.sidebar:
     st.write("---")
     st.write("### 🤖 AI Features")
     if LLM_AVAILABLE:
-        st.success("✅ Groq AI is ACTIVE")
-        st.caption("Using Llama 3.3 70B model")
-        st.caption("Temperature: 0.0 (consistent responses)")
+        try:
+            from llm_helper import get_groq_client
+            client, error = get_groq_client()
+            if error:
+                st.warning(f"⚠️ Groq AI: {error[:50]}...")
+            else:
+                st.success("✅ Groq AI is ACTIVE")
+                st.caption("Model: Llama 3.3 70B")
+                st.caption("Temperature: 0.0")
+        except:
+            st.warning("⚠️ Groq AI needs configuration")
     else:
-        st.warning("⚠️ Groq AI not configured")
-        st.caption("Add GROQ_API_KEY to enable")
+        st.warning("⚠️ Groq AI not available")
     
     st.write("---")
     st.write("### 📝 How to Use")
-    st.write("1. Enter symptoms separated by commas")
+    st.write("1. Enter symptoms (comma separated)")
     st.write("2. Click Predict Disease")
-    st.write("3. Get AI-powered health information")
+    st.write("3. Get AI-powered health info")
     
     st.write("---")
-    st.write("### 📋 Example")
-    if st.button("Load Example Symptoms"):
-        st.session_state['symptoms_input'] = "itching, skin_rash, fatigue"
+    if st.button("📋 Load Example"):
+        st.session_state['symptoms_input'] = "itching, skin_rash"
         st.rerun()
 
 # Main input
 symptoms_input = st.text_area(
     "**Enter your symptoms (comma separated):**",
     value=st.session_state.get('symptoms_input', ''),
-    placeholder="Example: itching, skin_rash, fatigue, headache, fever",
+    placeholder="Example: itching, skin_rash, fatigue, headache",
     height=100
 )
 
@@ -203,26 +205,34 @@ if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
                 symptom_list = [s.strip() for s in symptoms_input.split(",") if s.strip()]
                 st.write(f"**Reported Symptoms:** {', '.join(symptom_list)}")
                 
+                st.markdown("---")
+                
                 # Get AI analysis if available
                 if LLM_AVAILABLE:
                     with st.spinner("🤖 Generating health information..."):
                         # Get symptom analysis
-                        analysis = get_symptom_analysis(symptom_list, predicted_disease, confidence)
-                        if analysis:
-                            st.info(f"**📋 Analysis:** {analysis}")
+                        try:
+                            analysis = get_symptom_analysis(symptom_list, predicted_disease, confidence)
+                            if analysis:
+                                st.info(f"**📋 Analysis:** {analysis}")
+                        except Exception as e:
+                            st.warning(f"Could not generate analysis: {str(e)}")
                         
                         # Get complete health advice
-                        advice = get_complete_health_advice(predicted_disease)
-                        st.markdown(advice)
+                        try:
+                            advice = get_complete_health_advice(predicted_disease)
+                            if advice:
+                                st.markdown(advice)
+                        except Exception as e:
+                            st.warning(f"Could not generate health advice: {str(e)}")
                 else:
-                    # Basic info without LLM
-                    st.info("💡 **Note:** Enable Groq AI for detailed home remedies, diet tips, and prevention advice.")
+                    st.info("💡 **Note:** Configure Groq AI for detailed health recommendations.")
                     
                     # Show common symptoms from dataset
                     disease_data = df[df['prognosis'] == predicted_disease]
                     common_symptoms = []
                     for sym in ALL_SYMPTOMS[:30]:
-                        if disease_data[sym].mean() > 0.5:
+                        if len(disease_data) > 0 and disease_data[sym].mean() > 0.5:
                             common_symptoms.append(sym.replace('_', ' ').title())
                     
                     if common_symptoms:
@@ -236,31 +246,11 @@ if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
                 st.markdown("---")
                 st.warning("""
                 ⚠️ **Medical Disclaimer:** 
-                - This is an AI prediction tool for **educational purposes only**
+                - This is an **educational tool only**
                 - Not a substitute for professional medical advice
                 - Always consult a qualified healthcare provider
-                - In case of emergency, contact local emergency services
+                - In emergencies, contact local emergency services
                 """)
-                
-                # Download report
-                report = f"""
-DISEASE PREDICTION REPORT
-Generated: {pd.Timestamp.now()}
-
-Predicted Disease: {predicted_disease}
-Confidence: {confidence:.1f}%
-Reported Symptoms: {symptoms_input}
-
-This prediction is based on machine learning analysis of {len(df)} patient records.
-
-Note: This is for educational purposes only. Consult a healthcare provider.
-"""
-                st.download_button(
-                    label="📥 Download Report",
-                    data=report,
-                    file_name=f"prediction_{predicted_disease.replace(' ', '_')}.txt",
-                    mime="text/plain"
-                )
                 
             except Exception as e:
                 st.error(f"Error during prediction: {str(e)}")
@@ -271,8 +261,8 @@ st.markdown(
     """
     <div style='text-align: center; color: gray;'>
         <p>🩺 <strong>AI Disease Prediction System</strong></p>
-        <p style='font-size: 12px;'>Model: Random Forest Classifier | AI: Groq Llama 3.3 70B</p>
-        <p style='font-size: 12px;'>⚠️ Educational purpose only | Always consult a doctor</p>
+        <p style='font-size: 12px;'>Model: Random Forest | AI: Groq Llama 3.3 70B</p>
+        <p style='font-size: 12px;'>⚠️ Educational purpose only</p>
     </div>
     """,
     unsafe_allow_html=True
