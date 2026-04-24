@@ -16,7 +16,6 @@ import numpy as np
 import joblib
 from pathlib import Path
 import warnings
-import os
 import requests
 import json
 warnings.filterwarnings('ignore')
@@ -24,93 +23,78 @@ warnings.filterwarnings('ignore')
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Groq LLM Setup - FIXED VERSION
+# Ollama Setup - No API key needed!
 # ============================================
 
-def get_groq_client():
-    """Initialize Groq client - Works with version 0.5.0"""
+def check_ollama():
+    """Check if Ollama is running"""
     try:
-        # Get API key from Streamlit secrets
-        api_key = None
-        try:
-            if hasattr(st, 'secrets') and "GROQ_API_KEY" in st.secrets:
-                api_key = st.secrets["GROQ_API_KEY"]
-        except:
-            pass
-        
-        if not api_key:
-            return None, "GROQ_API_KEY not found in secrets"
-        
-        # For groq==0.5.0, this is the correct initialization
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        return client, None
-        
-    except Exception as e:
-        return None, str(e)
+        response = requests.get("http://localhost:11434/api/tags", timeout=2)
+        return response.status_code == 200
+    except:
+        return False
 
-def get_disease_info_from_groq(disease_name, symptoms_list, confidence):
-    """Get disease-specific information from Groq LLM"""
+def get_disease_info_from_ollama(disease_name, symptoms_list, confidence):
+    """Get disease-specific information using Ollama"""
     
-    client, error = get_groq_client()
-    
-    if error or client is None:
-        return None
-    
-    prompt = f"""Provide health information for {disease_name}.
+    prompt = f"""You are a helpful medical assistant. Provide health information for {disease_name}.
 
 Symptoms reported: {', '.join(symptoms_list)}
 Confidence: {confidence:.1f}%
 
-Provide EXACTLY this format:
+Provide EXACTLY this format (use simple language, no markdown):
 
-🌿 HOME REMEDIES:
-• [specific remedy 1 for {disease_name}]
-• [specific remedy 2 for {disease_name}]
-• [specific remedy 3 for {disease_name}]
-• [specific remedy 4 for {disease_name}]
-• [specific remedy 5 for {disease_name}]
+HOME REMEDIES:
+1. [specific remedy 1]
+2. [specific remedy 2]
+3. [specific remedy 3]
+4. [specific remedy 4]
+5. [specific remedy 5]
 
-🥗 DIET RECOMMENDATIONS:
-• [diet tip 1 for {disease_name}]
-• [diet tip 2 for {disease_name}]
-• [diet tip 3 for {disease_name}]
-• [diet tip 4 for {disease_name}]
-• [diet tip 5 for {disease_name}]
+DIET RECOMMENDATIONS:
+1. [diet tip 1]
+2. [diet tip 2]
+3. [diet tip 3]
+4. [diet tip 4]
+5. [diet tip 5]
 
-🛡️ PREVENTION TIPS:
-• [prevention tip 1 for {disease_name}]
-• [prevention tip 2 for {disease_name}]
-• [prevention tip 3 for {disease_name}]
-• [prevention tip 4 for {disease_name}]
-• [prevention tip 5 for {disease_name}]
+PREVENTION TIPS:
+1. [prevention tip 1]
+2. [prevention tip 2]
+3. [prevention tip 3]
+4. [prevention tip 4]
+5. [prevention tip 5]
 
-📚 WHEN TO SEE A DOCTOR:
-[2-3 warning signs specific to {disease_name}]
+WHEN TO SEE A DOCTOR:
+- [warning sign 1]
+- [warning sign 2]
+- [warning sign 3]
 
-Keep responses practical and specific to {disease_name}. Use simple language."""
+Keep responses practical and specific to {disease_name}. Always recommend consulting a doctor."""
 
     try:
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"You are a medical information assistant. Provide specific, practical information about {disease_name} only. Never give medical advice. Keep responses educational."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.3,
-            max_tokens=800
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "phi",  # or "mistral", "llama2", "tinyllama"
+                "prompt": prompt,
+                "stream": False,
+                "temperature": 0.3,
+                "max_tokens": 800
+            },
+            timeout=30
         )
         
-        return completion.choices[0].message.content
-        
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("response", "No response from Ollama")
+        else:
+            return None
+            
+    except requests.exceptions.ConnectionError:
+        return None
     except Exception as e:
-        st.error(f"Groq Error: {str(e)[:100]}")
+        st.error(f"Ollama Error: {str(e)[:100]}")
         return None
 
 # ============================================
@@ -185,7 +169,6 @@ def preprocess_symptoms(user_input, all_symptoms):
 # Load everything
 # ============================================
 
-# Show a simple loader while loading
 with st.spinner("🔄 Loading application..."):
     df = load_training_data()
     
@@ -193,6 +176,9 @@ with st.spinner("🔄 Loading application..."):
         model, label_encoder, ALL_SYMPTOMS = get_model_and_encoder()
     else:
         model, label_encoder, ALL_SYMPTOMS = None, None, None
+
+# Check Ollama status
+ollama_available = check_ollama()
 
 # ============================================
 # UI
@@ -210,25 +196,24 @@ with st.sidebar:
     
     st.write("---")
     
-    # Test Groq connection
-    with st.spinner("Checking Groq..."):
-        client, error = get_groq_client()
-        if client:
-            st.success("✅ Groq AI Ready")
-        else:
-            st.error(f"❌ Groq: {error[:50] if error else 'Not configured'}")
-            st.info("Add GROQ_API_KEY in Streamlit Secrets (Settings → Secrets)")
+    # Check Ollama status
+    if ollama_available:
+        st.success("✅ Ollama AI Ready")
+        st.caption("Model: phi (for health information)")
+    else:
+        st.warning("⚠️ Ollama not available")
+        st.caption("Will show basic info from training data")
     
     st.write("---")
     st.write("### 📝 Instructions")
-    st.write("1. Enter symptoms")
+    st.write("1. Enter symptoms (comma separated)")
     st.write("2. Click Predict")
-    st.write("3. Get health info")
+    st.write("3. Get health information")
 
 st.write("### Enter Your Symptoms")
 symptoms_input = st.text_area(
     "",
-    placeholder="Example: itching, skin_rash, fatigue",
+    placeholder="Example: itching, skin_rash, fatigue, headache",
     height=80,
     label_visibility="collapsed"
 )
@@ -270,17 +255,29 @@ if predict_clicked:
                 
                 st.markdown("---")
                 
-                # Get Groq information
-                client, _ = get_groq_client()
-                if client:
+                # Get Ollama information if available
+                if ollama_available:
                     with st.spinner(f"🤖 Getting health information for {predicted_disease}..."):
-                        info = get_disease_info_from_groq(predicted_disease, symptom_list, confidence)
+                        info = get_disease_info_from_ollama(predicted_disease, symptom_list, confidence)
                         if info:
                             st.markdown(info)
                         else:
-                            st.warning("Could not fetch information. Please try again.")
+                            st.warning("Could not fetch information from Ollama. Make sure Ollama is running.")
+                            # Show fallback info from training data
+                            disease_data = df[df['prognosis'] == predicted_disease]
+                            common_symptoms = []
+                            for sym in ALL_SYMPTOMS[:20]:
+                                if len(disease_data) > 0 and disease_data[sym].mean() > 0.5:
+                                    common_symptoms.append(sym.replace('_', ' ').title())
+                            
+                            if common_symptoms:
+                                st.write("**Common symptoms (from training data):**")
+                                cols = st.columns(3)
+                                for i, sym in enumerate(common_symptoms[:9]):
+                                    with cols[i % 3]:
+                                        st.write(f"- {sym}")
                 else:
-                    st.info("💡 **Groq AI not available.** Add GROQ_API_KEY to secrets for home remedies and health tips.")
+                    st.info("💡 **Ollama not available.** For home remedies and health tips, install Ollama locally or add GROQ_API_KEY to secrets.")
                     
                     # Show common symptoms from training data as fallback
                     disease_data = df[df['prognosis'] == predicted_disease]
