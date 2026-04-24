@@ -13,40 +13,39 @@ st.set_page_config(
 # ============================================
 import pandas as pd
 import numpy as np
+import joblib
 from pathlib import Path
 import warnings
 import os
+import requests
+import json
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Groq LLM Setup
+# Groq LLM Setup - FIXED VERSION
 # ============================================
 
 def get_groq_client():
-    """Initialize Groq client - Reads API key from Streamlit secrets"""
+    """Initialize Groq client - Works with version 0.5.0"""
     try:
+        # Get API key from Streamlit secrets
         api_key = None
-        
-        # Read from Streamlit secrets (for cloud)
         try:
             if hasattr(st, 'secrets') and "GROQ_API_KEY" in st.secrets:
                 api_key = st.secrets["GROQ_API_KEY"]
-                if api_key:
-                    print("✅ API key found in secrets")
-        except Exception as e:
-            print(f"Error reading secrets: {e}")
+        except:
+            pass
         
         if not api_key:
             return None, "GROQ_API_KEY not found in secrets"
         
+        # For groq==0.5.0, this is the correct initialization
         from groq import Groq
         client = Groq(api_key=api_key)
         return client, None
         
-    except ImportError:
-        return None, "Groq library not installed"
     except Exception as e:
         return None, str(e)
 
@@ -61,37 +60,35 @@ def get_disease_info_from_groq(disease_name, symptoms_list, confidence):
     prompt = f"""Provide health information for {disease_name}.
 
 Symptoms reported: {', '.join(symptoms_list)}
+Confidence: {confidence:.1f}%
 
 Provide EXACTLY this format:
 
-🌿 HOME REMEDIES FOR {disease_name.upper()}:
-• Remedy 1
-• Remedy 2
-• Remedy 3
-• Remedy 4
-• Remedy 5
+🌿 HOME REMEDIES:
+• [specific remedy 1 for {disease_name}]
+• [specific remedy 2 for {disease_name}]
+• [specific remedy 3 for {disease_name}]
+• [specific remedy 4 for {disease_name}]
+• [specific remedy 5 for {disease_name}]
 
 🥗 DIET RECOMMENDATIONS:
-• Diet tip 1
-• Diet tip 2
-• Diet tip 3
-• Diet tip 4
-• Diet tip 5
+• [diet tip 1 for {disease_name}]
+• [diet tip 2 for {disease_name}]
+• [diet tip 3 for {disease_name}]
+• [diet tip 4 for {disease_name}]
+• [diet tip 5 for {disease_name}]
 
 🛡️ PREVENTION TIPS:
-• Prevention tip 1
-• Prevention tip 2
-• Prevention tip 3
-• Prevention tip 4
-• Prevention tip 5
-
-🏃‍♂️ EXERCISE GUIDELINES:
-[2 sentences about safe exercises]
+• [prevention tip 1 for {disease_name}]
+• [prevention tip 2 for {disease_name}]
+• [prevention tip 3 for {disease_name}]
+• [prevention tip 4 for {disease_name}]
+• [prevention tip 5 for {disease_name}]
 
 📚 WHEN TO SEE A DOCTOR:
-[2-3 warning signs]
+[2-3 warning signs specific to {disease_name}]
 
-Keep responses specific to {disease_name}. Use simple language."""
+Keep responses practical and specific to {disease_name}. Use simple language."""
 
     try:
         completion = client.chat.completions.create(
@@ -99,7 +96,7 @@ Keep responses specific to {disease_name}. Use simple language."""
             messages=[
                 {
                     "role": "system",
-                    "content": f"You are a medical information assistant. Provide specific information about {disease_name} only. Never give medical advice. Keep responses educational."
+                    "content": f"You are a medical information assistant. Provide specific, practical information about {disease_name} only. Never give medical advice. Keep responses educational."
                 },
                 {
                     "role": "user",
@@ -126,10 +123,13 @@ def load_training_data():
         st.error("❌ Training.csv not found!")
         return None
     
-    df = pd.read_csv(csv_path)
-    # Remove unnamed column if exists
-    df = df.drop(columns=['Unnamed: 133'], errors='ignore')
-    return df
+    try:
+        df = pd.read_csv(csv_path)
+        df = df.drop(columns=['Unnamed: 133'], errors='ignore')
+        return df
+    except Exception as e:
+        st.error(f"Error loading CSV: {str(e)}")
+        return None
 
 @st.cache_resource
 def get_model_and_encoder():
@@ -217,7 +217,7 @@ with st.sidebar:
             st.success("✅ Groq AI Ready")
         else:
             st.error(f"❌ Groq: {error[:50] if error else 'Not configured'}")
-            st.info("Add GROQ_API_KEY in Streamlit Secrets")
+            st.info("Add GROQ_API_KEY in Streamlit Secrets (Settings → Secrets)")
     
     st.write("---")
     st.write("### 📝 Instructions")
@@ -281,6 +281,20 @@ if predict_clicked:
                             st.warning("Could not fetch information. Please try again.")
                 else:
                     st.info("💡 **Groq AI not available.** Add GROQ_API_KEY to secrets for home remedies and health tips.")
+                    
+                    # Show common symptoms from training data as fallback
+                    disease_data = df[df['prognosis'] == predicted_disease]
+                    common_symptoms = []
+                    for sym in ALL_SYMPTOMS[:20]:
+                        if len(disease_data) > 0 and disease_data[sym].mean() > 0.5:
+                            common_symptoms.append(sym.replace('_', ' ').title())
+                    
+                    if common_symptoms:
+                        st.write("**Common symptoms (from training data):**")
+                        cols = st.columns(3)
+                        for i, sym in enumerate(common_symptoms[:9]):
+                            with cols[i % 3]:
+                                st.write(f"- {sym}")
                 
                 st.markdown("---")
                 st.caption("⚠️ **Educational purpose only.** Always consult a healthcare provider.")
