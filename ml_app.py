@@ -5,7 +5,7 @@ import streamlit as st
 st.set_page_config(
     page_title="AI Disease Prediction System",
     page_icon="🩺",
-    layout="wide"
+    layout="centered"  # Changed from "wide" to "centered" for smaller width
 )
 
 # ============================================
@@ -22,25 +22,39 @@ warnings.filterwarnings('ignore')
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Groq LLM Setup
+# Groq LLM Setup - FIXED
 # ============================================
 
 def get_groq_client():
-    """Initialize Groq client"""
+    """Initialize Groq client - FIXED VERSION"""
     try:
-        api_key = st.secrets.get("GROQ_API_KEY")
+        # Try multiple ways to get API key
+        api_key = None
+        
+        # Method 1: Streamlit secrets
+        try:
+            if hasattr(st, 'secrets') and "GROQ_API_KEY" in st.secrets:
+                api_key = st.secrets["GROQ_API_KEY"]
+                print("✅ Found API key in Streamlit secrets")
+        except:
+            pass
+        
+        # Method 2: Environment variable
         if not api_key:
             api_key = os.getenv("GROQ_API_KEY")
+            if api_key:
+                print("✅ Found API key in environment variables")
         
         if not api_key:
-            return None, "GROQ_API_KEY not found"
+            return None, "GROQ_API_KEY not found. Please add to Streamlit secrets."
         
+        # Initialize Groq client
         from groq import Groq
         client = Groq(api_key=api_key)
         return client, None
         
     except Exception as e:
-        return None, str(e)
+        return None, f"Error: {str(e)}"
 
 def get_disease_info_from_groq(disease_name, symptoms_list, confidence):
     """Get disease-specific information from Groq LLM"""
@@ -50,38 +64,38 @@ def get_disease_info_from_groq(disease_name, symptoms_list, confidence):
     if error or client is None:
         return None
     
-    prompt = f"""Provide health information for {disease_name} based on these symptoms: {', '.join(symptoms_list)} (confidence: {confidence:.1f}%)
+    prompt = f"""Provide health information for {disease_name} based on these symptoms: {', '.join(symptoms_list)}.
 
 Provide ONLY in this exact format:
 
 🌿 HOME REMEDIES:
-• [remedy 1]
-• [remedy 2]
-• [remedy 3]
-• [remedy 4]
-• [remedy 5]
+• [specific remedy 1 for {disease_name}]
+• [specific remedy 2 for {disease_name}]
+• [specific remedy 3 for {disease_name}]
+• [specific remedy 4 for {disease_name}]
+• [specific remedy 5 for {disease_name}]
 
 🥗 DIET RECOMMENDATIONS:
-• [diet 1]
-• [diet 2]
-• [diet 3]
-• [diet 4]
-• [diet 5]
+• [diet tip 1 for {disease_name}]
+• [diet tip 2 for {disease_name}]
+• [diet tip 3 for {disease_name}]
+• [diet tip 4 for {disease_name}]
+• [diet tip 5 for {disease_name}]
 
 🛡️ PREVENTION TIPS:
-• [tip 1]
-• [tip 2]
-• [tip 3]
-• [tip 4]
-• [tip 5]
+• [prevention tip 1 for {disease_name}]
+• [prevention tip 2 for {disease_name}]
+• [prevention tip 3 for {disease_name}]
+• [prevention tip 4 for {disease_name}]
+• [prevention tip 5 for {disease_name}]
 
 🏃‍♂️ EXERCISE GUIDELINES:
-[2 sentences about exercise]
+[2 sentences about safe exercises for {disease_name}]
 
 📚 WHEN TO SEE A DOCTOR:
-[2-3 warning signs]
+[2-3 warning signs specific to {disease_name}]
 
-Keep responses specific to {disease_name}. Use practical, actionable advice."""
+Keep responses practical and specific to {disease_name}."""
 
     try:
         completion = client.chat.completions.create(
@@ -89,7 +103,7 @@ Keep responses specific to {disease_name}. Use practical, actionable advice."""
             messages=[
                 {
                     "role": "system",
-                    "content": f"You are a medical information assistant. Provide specific, practical information about {disease_name}. Never give medical advice. Always recommend consulting doctors."
+                    "content": f"You are a medical information assistant. Provide specific, practical information about {disease_name} only. Never give medical advice."
                 },
                 {
                     "role": "user",
@@ -107,7 +121,7 @@ Keep responses specific to {disease_name}. Use practical, actionable advice."""
         return None
 
 # ============================================
-# Load data from CSV only
+# Load data from CSV
 # ============================================
 @st.cache_data
 def load_training_data():
@@ -115,21 +129,21 @@ def load_training_data():
     if not csv_path.exists():
         st.error("❌ Training.csv not found!")
         return None
-    df = pd.read_csv(csv_path)
-    df = df.drop(columns=['Unnamed: 133'], errors='ignore')
-    return df
+    
+    try:
+        df = pd.read_csv(csv_path)
+        # Remove unnamed column if exists
+        df = df.drop(columns=['Unnamed: 133'], errors='ignore')
+        return df
+    except Exception as e:
+        st.error(f"Error loading CSV: {str(e)}")
+        return None
 
 @st.cache_data
 def get_symptom_list(df):
     if df is None:
         return []
     return [col for col in df.columns if col != 'prognosis']
-
-@st.cache_data
-def get_disease_list(df):
-    if df is None:
-        return []
-    return sorted(df['prognosis'].unique())
 
 @st.cache_resource
 def load_or_train_model(df):
@@ -139,15 +153,17 @@ def load_or_train_model(df):
     if df is None:
         return None, None
     
+    # Try to load existing model
     if model_path.exists() and encoder_path.exists():
         try:
             model = joblib.load(model_path)
             le = joblib.load(encoder_path)
             return model, le
         except Exception as e:
-            st.warning(f"Could not load model: {e}")
+            st.warning(f"Training new model...")
     
-    with st.spinner("🔄 Training AI model from dataset..."):
+    # Train new model
+    with st.spinner("🔄 Training AI model..."):
         try:
             X = df.drop('prognosis', axis=1)
             y = df['prognosis']
@@ -167,6 +183,7 @@ def load_or_train_model(df):
             
             pipeline.fit(X, y_encoded)
             
+            # Save models
             joblib.dump(pipeline, model_path)
             joblib.dump(le, encoder_path)
             
@@ -178,7 +195,7 @@ def load_or_train_model(df):
 
 def preprocess_symptoms(user_input, all_symptoms):
     if not user_input.strip() or not all_symptoms:
-        return [0] * 132
+        return [0] * len(all_symptoms) if all_symptoms else [0] * 132
     
     user_symptoms = [s.strip().lower().replace(' ', '_') for s in user_input.split(",")]
     
@@ -199,12 +216,7 @@ if df is None:
     st.stop()
 
 ALL_SYMPTOMS = get_symptom_list(df)
-ALL_DISEASES = get_disease_list(df)
 model, label_encoder = load_or_train_model(df)
-
-# Check Groq availability
-client, _ = get_groq_client()
-GROQ_AVAILABLE = client is not None
 
 # ============================================
 # UI
@@ -214,32 +226,41 @@ st.title("🩺 AI Disease Prediction System")
 # Sidebar
 with st.sidebar:
     st.write("### 📊 Dataset Info")
-    st.write(f"**Diseases:** {len(ALL_DISEASES)}")
-    st.write(f"**Symptoms:** {len(ALL_SYMPTOMS)}")
-    st.write(f"**Training Records:** {len(df)}")
+    if df is not None:
+        st.write(f"**Diseases:** {df['prognosis'].nunique()}")
+        st.write(f"**Symptoms:** {len(ALL_SYMPTOMS)}")
+        st.write(f"**Records:** {len(df)}")
     
     st.write("---")
-    if GROQ_AVAILABLE:
+    
+    # Test Groq connection
+    client, error = get_groq_client()
+    if client:
         st.success("✅ Groq AI Ready")
-        st.caption("Will provide disease-specific information")
     else:
-        st.warning("⚠️ Groq AI not configured")
-        st.caption("Add GROQ_API_KEY to secrets for health info")
+        st.warning("⚠️ Groq AI: " + (error[:50] if error else "Not configured"))
     
     st.write("---")
     st.write("### 📝 How to Use")
     st.write("1. Enter symptoms (comma separated)")
     st.write("2. Click Predict")
-    st.write("3. Get disease-specific health info")
+    st.write("3. Get AI-powered health info")
 
 # Main input
+st.write("### Enter Your Symptoms")
 symptoms_input = st.text_area(
-    "**Enter your symptoms (comma separated):**",
+    "",
     placeholder="Example: itching, skin_rash, fatigue, headache",
-    height=100
+    height=80,
+    label_visibility="collapsed"
 )
 
-if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
+# Center the button
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    predict_clicked = st.button("🔍 Predict Disease", type="primary", use_container_width=True)
+
+if predict_clicked:
     if not symptoms_input.strip():
         st.warning("⚠️ Please enter at least one symptom")
     elif model is None:
@@ -259,24 +280,31 @@ if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
                 
                 # Display prediction
                 st.success(f"### 🎯 Predicted: {predicted_disease}")
-                st.metric("Confidence", f"{confidence:.1f}%")
-                st.write(f"**Symptoms reported:** {', '.join(symptom_list)}")
+                
+                # Show confidence with color coding
+                if confidence >= 80:
+                    st.metric("Confidence", f"{confidence:.0f}%", delta="High")
+                elif confidence >= 60:
+                    st.metric("Confidence", f"{confidence:.0f}%", delta="Medium")
+                else:
+                    st.metric("Confidence", f"{confidence:.0f}%", delta="Low")
                 
                 st.markdown("---")
                 
-                # Get disease-specific information from Groq ONLY
-                if GROQ_AVAILABLE:
+                # Get Groq information
+                client, _ = get_groq_client()
+                if client:
                     with st.spinner(f"🤖 Getting information about {predicted_disease}..."):
                         disease_info = get_disease_info_from_groq(predicted_disease, symptom_list, confidence)
                         
                         if disease_info:
                             st.markdown(disease_info)
                         else:
-                            st.error(f"Could not fetch information for {predicted_disease}. Please try again.")
+                            st.error(f"Could not fetch information. Please try again.")
                 else:
-                    st.info("💡 **Groq AI not configured.** Add GROQ_API_KEY to Streamlit secrets to get home remedies, diet tips, and prevention advice.")
+                    st.info("💡 **Enable Groq AI:** Add GROQ_API_KEY to Streamlit secrets for home remedies and health tips.")
                     
-                    # Show basic info from CSV only
+                    # Show common symptoms from training data
                     disease_data = df[df['prognosis'] == predicted_disease]
                     common_symptoms = []
                     for sym in ALL_SYMPTOMS[:20]:
@@ -284,7 +312,7 @@ if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
                             common_symptoms.append(sym.replace('_', ' ').title())
                     
                     if common_symptoms:
-                        st.write("**Common symptoms for this condition (from training data):**")
+                        st.write("**Common symptoms (from training data):**")
                         cols = st.columns(3)
                         for i, sym in enumerate(common_symptoms[:9]):
                             with cols[i % 3]:
@@ -292,10 +320,7 @@ if st.button("🔍 Predict Disease", type="primary", use_container_width=True):
                 
                 # Disclaimer
                 st.markdown("---")
-                st.warning("""
-                ⚠️ **Medical Disclaimer:** Educational purpose only.  
-                Always consult a healthcare provider for medical advice.
-                """)
+                st.caption("⚠️ **Educational purpose only.** Always consult a healthcare provider.")
                 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
