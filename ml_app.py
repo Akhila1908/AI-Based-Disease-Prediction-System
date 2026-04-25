@@ -18,98 +18,86 @@ from pathlib import Path
 import warnings
 import requests
 import json
-import random
+import os
+import time
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Free Image Search using Unsplash API (No API Key Required)
+# Image Search using SerpAPI (Working Implementation)
 # ============================================
 
-def fetch_disease_images_free(disease_name):
-    """
-    Fetch disease images using Unsplash Source API (completely free, no API key)
-    """
-    images = []
-    
-    # Clean the disease name for URL
-    search_term = disease_name.lower().replace(' ', '-')
-    
-    # Unsplash provides random images based on search terms
-    # These are high-quality, free stock photos
-    
-    # Generate multiple unique image URLs
-    for i in range(4):
-        # Unsplash source URL that returns random images matching the search term
-        img_url = f"https://source.unsplash.com/400x300/?{search_term},medical,health"
-        images.append(img_url)
-    
-    return images
-
-# Alternative: Using Pixabay API (free with API key)
-def get_pixabay_api_key():
-    """Get Pixabay API key from secrets"""
+def get_serpapi_key():
+    """Get SerpAPI key from secrets"""
     try:
-        return st.secrets.get("PIXABAY_API_KEY")
+        return st.secrets.get("SERPAPI_API_KEY")
     except:
-        return None
+        return os.getenv("SERPAPI_API_KEY")
 
-def fetch_disease_images_pixabay(disease_name):
+def fetch_disease_images_serpapi(disease_name):
     """
-    Fetch disease images using Pixabay API (free up to 100 requests/hour)
+    Fetch disease images using SerpAPI Google Image Search
+    Free tier: 100 searches/month
     """
-    api_key = get_pixabay_api_key()
+    api_key = get_serpapi_key()
     
     if not api_key:
-        return fetch_disease_images_free(disease_name)
+        return []
     
-    url = "https://pixabay.com/api/"
-    
-    params = {
-        "key": api_key,
-        "q": f"{disease_name} medical health",
-        "image_type": "photo",
-        "per_page": 4,
-        "safesearch": "true"
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            hits = data.get("hits", [])
-            
-            images = []
-            for hit in hits[:4]:
-                # Get medium sized image URL
-                img_url = hit.get("webformatURL") or hit.get("largeImageURL")
-                if img_url:
-                    images.append(img_url)
-            
-            if images:
-                return images
-    
-    except Exception as e:
-        pass
-    
-    # Fallback to Unsplash
-    return fetch_disease_images_free(disease_name)
-
-# Simple fallback - Medical stock photos that are guaranteed to work
-def get_fallback_images(disease_name):
-    """
-    Fallback images that always work (free medical stock photos)
-    """
-    # Generic medical images that are relevant
-    images = [
-        "https://cdn.pixabay.com/photo/2020/04/11/12/42/corona-5030706_640.jpg",
-        "https://cdn.pixabay.com/photo/2016/11/14/03/14/medical-1822635_640.jpg",
-        "https://cdn.pixabay.com/photo/2018/11/15/20/50/doctor-3818689_640.jpg",
-        "https://cdn.pixabay.com/photo/2015/10/30/15/56/acne-1015251_640.jpg",
+    # Construct search query
+    search_queries = [
+        f"{disease_name} medical condition",
+        f"{disease_name} symptoms",
+        f"{disease_name} disease",
+        f"{disease_name} healthcare"
     ]
-    return images
+    
+    all_images = []
+    used_urls = set()
+    
+    for query in search_queries:
+        if len(all_images) >= 4:
+            break
+            
+        url = "https://serpapi.com/search.json"
+        params = {
+            "q": query,
+            "tbm": "isch",  # Image search
+            "api_key": api_key,
+            "num": 4,  # Number of images
+            "ijn": 0,  # Page number
+        }
+        
+        try:
+            response = requests.get(url, params=params, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                images_results = data.get("images_results", [])
+                
+                for img in images_results:
+                    img_url = img.get("original") or img.get("thumbnail")
+                    
+                    # Filter out invalid images
+                    if img_url and img_url not in used_urls:
+                        # Filter out placeholder images
+                        if not any(x in img_url.lower() for x in ['placeholder', 'data:image', 'svg', 'base64']):
+                            all_images.append(img_url)
+                            used_urls.add(img_url)
+                            
+                            if len(all_images) >= 4:
+                                break
+            else:
+                continue
+                
+        except Exception as e:
+            continue
+        
+        # Small delay to avoid rate limiting
+        time.sleep(0.5)
+    
+    return all_images[:4]
 
 # ============================================
 # Load data and train model
@@ -488,8 +476,9 @@ with st.spinner("🔄 Loading application..."):
     else:
         model, label_encoder, ALL_SYMPTOMS = None, None, None
 
-# Check if Groq API key is available
+# Check API availability
 groq_key_available = get_groq_api_key() is not None
+serpapi_key_available = get_serpapi_key() is not None
 
 # ============================================
 # UI - Simplified Sidebar
@@ -512,7 +501,13 @@ with st.sidebar:
     st.markdown("`cough, fever, runny_nose`")
     st.markdown("`headache, nausea, dizziness`")
     st.markdown("---")
-    st.success("✅ Image search ready (Free)")
+    
+    if serpapi_key_available:
+        st.success("✅ SerpAPI Image Search Ready")
+        st.caption("Fetching real images from Google")
+    else:
+        st.warning("⚠️ Add SERPAPI_API_KEY for disease images")
+    
     st.caption("⚠️ Educational purpose only")
 
 # Main input
@@ -560,34 +555,28 @@ if predict_clicked:
                 else:
                     st.metric("Confidence", f"{confidence:.0f}%", delta="Low")
                 
-                # Fetch and display disease images using free method
-                with st.spinner(f"📸 Loading images for {predicted_disease}..."):
-                    # Try Pixabay if key exists, otherwise use Unsplash
-                    pixabay_key = None
-                    try:
-                        pixabay_key = st.secrets.get("PIXABAY_API_KEY")
-                    except:
-                        pass
-                    
-                    if pixabay_key:
-                        disease_images = fetch_disease_images_pixabay(predicted_disease)
-                    else:
-                        disease_images = fetch_disease_images_free(predicted_disease)
-                    
-                    if disease_images:
-                        st.markdown("### 📸 Disease Images")
-                        st.markdown("*Medical images for reference*")
+                # Fetch and display disease images using SerpAPI
+                if serpapi_key_available:
+                    with st.spinner(f"📸 Fetching real images of {predicted_disease} from Google..."):
+                        images = fetch_disease_images_serpapi(predicted_disease)
                         
-                        # Display images in a grid
-                        cols = st.columns(2)
-                        for idx, img_url in enumerate(disease_images[:4]):
-                            with cols[idx % 2]:
-                                try:
-                                    st.image(img_url, use_container_width=True)
-                                except Exception as img_error:
-                                    st.write(f"📷 Image {idx + 1} (reference)")
-                    else:
-                        st.info("📸 Medical images will appear here")
+                        if images:
+                            st.markdown("### 📸 Real Images from Google")
+                            st.markdown(f"*Images related to {predicted_disease}*")
+                            
+                            # Display images in a 2x2 grid
+                            cols = st.columns(2)
+                            for idx, img_url in enumerate(images[:4]):
+                                with cols[idx % 2]:
+                                    try:
+                                        st.image(img_url, use_container_width=True)
+                                    except Exception as img_error:
+                                        st.write(f"🖼️ Image {idx + 1} - Medical reference")
+                        else:
+                            st.info("No images found. Try a different disease or check your SerpAPI quota.")
+                else:
+                    st.info("📸 **Add SERPAPI_API_KEY to secrets to see real medical images**")
+                    st.caption("Get your API key from https://serpapi.com (100 free searches/month)")
                 
                 st.markdown("---")
                 
