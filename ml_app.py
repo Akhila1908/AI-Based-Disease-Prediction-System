@@ -16,9 +16,41 @@ import numpy as np
 import joblib
 from pathlib import Path
 import warnings
+import random
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
+
+# ============================================
+# Disease Images Database (Unsplash/Free Images)
+# ============================================
+
+DISEASE_IMAGES = {
+    "Acne": "https://images.unsplash.com/photo-1585683756806-6b37e9cd5bd2?w=400",
+    "Fungal infection": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Common Cold": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Migraine": "https://images.unsplash.com/photo-1579684385127-1ef15d508da1?w=400",
+    "Diabetes": "https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?w=400",
+    "Hypertension": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Tuberculosis": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Malaria": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Dengue": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Gastroenteritis": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Typhoid": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Urinary tract infection": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Hypothyroidism": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Arthritis": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Pneumonia": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Allergy": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Jaundice": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Chicken pox": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "GERD": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+    "Peptic ulcer diseae": "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400",
+}
+
+def get_disease_image(disease_name):
+    """Get image URL for the disease"""
+    return DISEASE_IMAGES.get(disease_name, "https://images.unsplash.com/photo-1584515933487-779824d29309?w=400")
 
 # ============================================
 # Load data and train model
@@ -89,18 +121,19 @@ def preprocess_symptoms(user_input, all_symptoms):
     return result
 
 # ============================================
-# Groq LLM with direct API call
+# Groq LLM Functions
 # ============================================
 
-def get_disease_overview(disease_name, symptoms_list, confidence):
-    """Get disease overview (about, common symptoms, match, severity)"""
-    
-    api_key = None
+def get_groq_api_key():
     try:
-        api_key = st.secrets.get("GROQ_API_KEY")
+        return st.secrets.get("GROQ_API_KEY")
     except:
-        pass
+        return None
+
+def get_disease_overview(disease_name, symptoms_list, confidence):
+    """Get disease overview"""
     
+    api_key = get_groq_api_key()
     if not api_key:
         return None
     
@@ -140,7 +173,7 @@ WHEN TO CONSULT A DOCTOR:
 - [warning sign 2]
 - [warning sign 3]
 
-Keep responses clear and easy to read. Use simple language."""
+Keep responses clear and easy to read."""
 
     payload = {
         "model": "llama-3.3-70b-versatile",
@@ -171,14 +204,9 @@ Keep responses clear and easy to read. Use simple language."""
         return None
 
 def get_home_remedies(disease_name):
-    """Get home remedies for the disease"""
+    """Get home remedies"""
     
-    api_key = None
-    try:
-        api_key = st.secrets.get("GROQ_API_KEY")
-    except:
-        pass
-    
+    api_key = get_groq_api_key()
     if not api_key:
         return None
     
@@ -195,21 +223,21 @@ def get_home_remedies(disease_name):
 
 Provide EXACTLY this format:
 
-🌿 HOME REMEDIES FOR {disease_name.upper()}:
+🌿 HOME REMEDIES:
 • [remedy 1]
 • [remedy 2]
 • [remedy 3]
 • [remedy 4]
 • [remedy 5]
 
-Keep each remedy short and practical. Use a new line for each remedy."""
+Keep each remedy short and practical."""
 
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "system",
-                "content": f"List 5 simple home remedies for {disease_name}. Use bullet points with •. Each remedy on new line."
+                "content": f"List 5 simple home remedies for {disease_name}. Use bullet points with •. Each on new line."
             },
             {
                 "role": "user",
@@ -233,14 +261,9 @@ Keep each remedy short and practical. Use a new line for each remedy."""
         return None
 
 def get_diet_recommendations(disease_name):
-    """Get diet recommendations for the disease"""
+    """Get diet recommendations"""
     
-    api_key = None
-    try:
-        api_key = st.secrets.get("GROQ_API_KEY")
-    except:
-        pass
-    
+    api_key = get_groq_api_key()
     if not api_key:
         return None
     
@@ -295,14 +318,9 @@ Keep each recommendation practical and specific."""
         return None
 
 def get_prevention_tips(disease_name):
-    """Get prevention tips for the disease"""
+    """Get prevention tips"""
     
-    api_key = None
-    try:
-        api_key = st.secrets.get("GROQ_API_KEY")
-    except:
-        pass
-    
+    api_key = get_groq_api_key()
     if not api_key:
         return None
     
@@ -357,14 +375,9 @@ Keep each tip practical and specific."""
         return None
 
 def get_exercise_guidelines(disease_name):
-    """Get exercise guidelines for the disease"""
+    """Get exercise guidelines"""
     
-    api_key = None
-    try:
-        api_key = st.secrets.get("GROQ_API_KEY")
-    except:
-        pass
-    
+    api_key = get_groq_api_key()
     if not api_key:
         return None
     
@@ -382,7 +395,7 @@ def get_exercise_guidelines(disease_name):
 Provide EXACTLY this format:
 
 🏃‍♂️ EXERCISE GUIDELINES:
-[2-3 sentences about safe exercises for {disease_name}]
+[2-3 sentences about safe exercises]
 
 Keep it practical and specific."""
 
@@ -427,39 +440,32 @@ with st.spinner("🔄 Loading application..."):
         model, label_encoder, ALL_SYMPTOMS = None, None, None
 
 # Check if Groq API key is available
-try:
-    groq_key_available = bool(st.secrets.get("GROQ_API_KEY"))
-except:
-    groq_key_available = False
+groq_key_available = get_groq_api_key() is not None
 
 # ============================================
-# UI
+# UI - Simplified Sidebar
 # ============================================
 st.title("🩺 AI Disease Prediction System")
 
 with st.sidebar:
-    st.write("### 📊 Status")
-    if df is not None:
-        st.success(f"✅ Dataset loaded: {len(df)} records")
-        st.write(f"**Diseases:** {df['prognosis'].nunique()}")
-        st.write(f"**Symptoms:** {len(ALL_SYMPTOMS)}")
-    else:
-        st.error("❌ Dataset not found")
-    
-    st.write("---")
-    
-    if groq_key_available:
-        st.success("✅ Groq AI Ready")
-        st.caption("Click sections below for details")
-    else:
-        st.warning("⚠️ Groq AI not configured")
-    
-    st.write("---")
-    st.write("### 📝 Instructions")
-    st.write("1. Enter symptoms (comma separated)")
-    st.write("2. Click Predict")
-    st.write("3. Click on sections to view details")
+    st.markdown("### 📝 How to Use")
+    st.markdown("1. Enter your symptoms below")
+    st.markdown("2. Click **Predict Disease**")
+    st.markdown("3. View the predicted disease")
+    st.markdown("4. Click on sections to see:")
+    st.markdown("   - 🌿 Home Remedies")
+    st.markdown("   - 🥗 Diet Recommendations")
+    st.markdown("   - 🛡️ Prevention Tips")
+    st.markdown("   - 🏃‍♂️ Exercise Guidelines")
+    st.markdown("---")
+    st.markdown("### 📋 Example Symptoms")
+    st.markdown("`itching, skin_rash, fatigue`")
+    st.markdown("`cough, fever, runny_nose`")
+    st.markdown("`headache, nausea, dizziness`")
+    st.markdown("---")
+    st.caption("⚠️ Educational purpose only")
 
+# Main input
 st.write("### Enter Your Symptoms")
 symptoms_input = st.text_area(
     "",
@@ -492,34 +498,39 @@ if predict_clicked:
                 
                 symptom_list = [s.strip() for s in symptoms_input.split(",") if s.strip()]
                 
-                # Display result
-                st.success(f"### 🎯 Predicted: {predicted_disease}")
-                st.caption(f"**User symptoms:** {', '.join(symptom_list)}")
+                # Display result with image
+                col1, col2 = st.columns([3, 1])
                 
-                # Show confidence with color
-                if confidence >= 80:
-                    st.metric("Confidence", f"{confidence:.0f}%", delta="High")
-                elif confidence >= 60:
-                    st.metric("Confidence", f"{confidence:.0f}%", delta="Medium")
-                else:
-                    st.metric("Confidence", f"{confidence:.0f}%", delta="Low")
+                with col1:
+                    st.success(f"### 🎯 Predicted: {predicted_disease}")
+                    st.caption(f"**Your symptoms:** {', '.join(symptom_list)}")
+                    
+                    # Show confidence
+                    if confidence >= 80:
+                        st.metric("Confidence", f"{confidence:.0f}%", delta="High")
+                    elif confidence >= 60:
+                        st.metric("Confidence", f"{confidence:.0f}%", delta="Medium")
+                    else:
+                        st.metric("Confidence", f"{confidence:.0f}%", delta="Low")
+                
+                with col2:
+                    # Display disease image
+                    image_url = get_disease_image(predicted_disease)
+                    st.image(image_url, use_container_width=True)
                 
                 st.markdown("---")
                 
                 if groq_key_available:
-                    # SECTION 1: Disease Overview (always shown, not expandable)
+                    # SECTION 1: Disease Overview (always shown)
                     with st.spinner(f"Loading information about {predicted_disease}..."):
                         overview = get_disease_overview(predicted_disease, symptom_list, confidence)
                         if overview:
-                            # Parse and display overview sections
                             lines = overview.split('\n')
-                            current_section = ""
                             
                             for line in lines:
                                 line = line.strip()
                                 if line:
                                     if line.startswith('ABOUT THE CONDITION:'):
-                                        st.markdown("---")
                                         st.markdown("### 📖 About This Condition")
                                     elif line.startswith('COMMON SYMPTOMS:'):
                                         st.markdown("### 🔍 Common Symptoms")
@@ -538,7 +549,7 @@ if predict_clicked:
                         else:
                             st.warning("Could not load disease overview")
                     
-                    # SECTION 2: Home Remedies (Expandable)
+                    # Expandable sections
                     with st.expander("🌿 Home Remedies", expanded=False):
                         with st.spinner("Loading home remedies..."):
                             remedies = get_home_remedies(predicted_disease)
@@ -550,7 +561,6 @@ if predict_clicked:
                             else:
                                 st.info("Home remedies information not available")
                     
-                    # SECTION 3: Diet Recommendations (Expandable)
                     with st.expander("🥗 Diet Recommendations", expanded=False):
                         with st.spinner("Loading diet recommendations..."):
                             diet = get_diet_recommendations(predicted_disease)
@@ -562,7 +572,6 @@ if predict_clicked:
                             else:
                                 st.info("Diet recommendations not available")
                     
-                    # SECTION 4: Prevention Tips (Expandable)
                     with st.expander("🛡️ Prevention Tips", expanded=False):
                         with st.spinner("Loading prevention tips..."):
                             prevention = get_prevention_tips(predicted_disease)
@@ -574,7 +583,6 @@ if predict_clicked:
                             else:
                                 st.info("Prevention tips not available")
                     
-                    # SECTION 5: Exercise Guidelines (Expandable)
                     with st.expander("🏃‍♂️ Exercise Guidelines", expanded=False):
                         with st.spinner("Loading exercise guidelines..."):
                             exercise = get_exercise_guidelines(predicted_disease)
