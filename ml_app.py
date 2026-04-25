@@ -17,103 +17,89 @@ import joblib
 from pathlib import Path
 import warnings
 import requests
-from PIL import Image
-from io import BytesIO
+import json
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Function to fetch disease images from internet
+# Dynamic Image Search using SerpAPI
 # ============================================
 
-def fetch_disease_images(disease_name):
+def get_serpapi_key():
+    """Get SerpAPI key from secrets"""
+    try:
+        return st.secrets.get("SERPAPI_API_KEY")
+    except:
+        return None
+
+def fetch_disease_images_serpapi(disease_name):
     """
-    Fetch relevant disease images from the internet using Unsplash API
+    Fetch disease images dynamically using SerpAPI (Google Image Search)
     Returns list of image URLs (up to 4)
     """
-    images = []
+    api_key = get_serpapi_key()
     
-    # Unsplash API (free, no API key required for basic search)
-    # Using a free image search service
+    if not api_key:
+        return []
+    
+    # Search query for the disease
     search_terms = [
         f"{disease_name} medical condition",
         f"{disease_name} symptoms",
-        f"{disease_name} skin",
-        f"{disease_name} treatment"
+        f"{disease_name} skin rash",
     ]
     
-    # Using placeholder images from reliable medical sources
-    # These are free stock photos related to medical conditions
+    all_images = []
     
-    image_mapping = {
-        "Acne": [
-            "https://cdn.pixabay.com/photo/2019/12/18/10/34/acne-4703433_640.jpg",
-            "https://cdn.pixabay.com/photo/2015/10/30/15/56/acne-1015251_640.jpg",
-            "https://cdn.pixabay.com/photo/2018/10/23/12/46/acne-3768646_640.jpg",
-        ],
-        "Fungal infection": [
-            "https://cdn.pixabay.com/photo/2018/10/09/23/07/ringworm-3736235_640.jpg",
-            "https://cdn.pixabay.com/photo/2020/04/13/16/47/fungal-infection-5037357_640.jpg",
-        ],
-        "Common Cold": [
-            "https://cdn.pixabay.com/photo/2016/09/07/06/41/cold-1650728_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/03/28/09/33/cold-1285500_640.jpg",
-        ],
-        "Migraine": [
-            "https://cdn.pixabay.com/photo/2017/01/24/04/32/migraine-2005187_640.jpg",
-            "https://cdn.pixabay.com/photo/2015/10/12/15/18/headache-984119_640.jpg",
-        ],
-        "Diabetes": [
-            "https://cdn.pixabay.com/photo/2015/10/13/05/43/diabetes-985915_640.jpg",
-            "https://cdn.pixabay.com/photo/2019/10/13/14/16/diabetes-4546930_640.jpg",
-        ],
-        "Hypertension": [
-            "https://cdn.pixabay.com/photo/2014/04/03/11/53/heart-312491_640.png",
-            "https://cdn.pixabay.com/photo/2017/08/07/21/05/blood-pressure-2608852_640.jpg",
-        ],
-        "Malaria": [
-            "https://cdn.pixabay.com/photo/2018/09/19/21/32/mosquito-3689796_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/11/18/11/11/mosquito-1834116_640.jpg",
-        ],
-        "Dengue": [
-            "https://cdn.pixabay.com/photo/2018/09/19/21/32/mosquito-3689796_640.jpg",
-            "https://cdn.pixabay.com/photo/2020/08/19/18/03/mosquito-5500963_640.jpg",
-        ],
-        "Arthritis": [
-            "https://cdn.pixabay.com/photo/2020/11/05/15/27/joint-pain-5714281_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/06/27/06/29/knee-1480988_640.jpg",
-        ],
-        "Tuberculosis": [
-            "https://cdn.pixabay.com/photo/2014/10/18/16/57/lungs-492888_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/11/07/17/19/cough-1805857_640.jpg",
-        ],
-        "Pneumonia": [
-            "https://cdn.pixabay.com/photo/2014/10/18/16/57/lungs-492888_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/11/07/17/19/cough-1805857_640.jpg",
-        ],
-        "Asthma": [
-            "https://cdn.pixabay.com/photo/2014/10/01/20/42/inhaler-468651_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/03/01/18/10/breathing-1230593_640.jpg",
-        ],
-        "Allergy": [
-            "https://cdn.pixabay.com/photo/2017/11/14/14/34/allergy-2947468_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/09/28/11/43/skin-1701373_640.jpg",
-        ],
-    }
+    for search_term in search_terms[:2]:  # Try 2 different search terms
+        if len(all_images) >= 4:
+            break
+            
+        params = {
+            "q": search_term,
+            "tbm": "isch",  # Image search
+            "api_key": api_key,
+            "num": 5,  # Number of images to fetch
+            "ijn": 0,  # Page number
+            "safe": "active"  # Safe search
+        }
+        
+        try:
+            response = requests.get("https://serpapi.com/search", params=params, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                images_results = data.get("images_results", [])
+                
+                for img in images_results:
+                    img_url = img.get("original") or img.get("thumbnail")
+                    if img_url and len(all_images) < 4:
+                        # Filter out small or placeholder images
+                        if "placeholder" not in img_url.lower() and "data:image" not in img_url:
+                            all_images.append(img_url)
+        except Exception as e:
+            st.warning(f"Image search error: {str(e)[:50]}")
+            continue
     
-    # Get images for the disease or use generic medical images
-    if disease_name in image_mapping:
-        images = image_mapping[disease_name]
-    else:
-        # Generic medical images for other diseases
-        images = [
-            "https://cdn.pixabay.com/photo/2018/11/15/20/50/doctor-3818689_640.jpg",
-            "https://cdn.pixabay.com/photo/2016/11/14/03/14/medical-1822635_640.jpg",
-            "https://cdn.pixabay.com/photo/2020/04/11/12/42/corona-5030706_640.jpg",
-        ]
+    return all_images[:4]  # Return up to 4 images
+
+# Alternative: Using Unsplash API (free, no API key required for demo)
+def fetch_disease_images_unsplash(disease_name):
+    """
+    Fetch disease images using Unsplash Source API (free, no API key)
+    """
+    images = []
     
-    return images[:4]  # Return up to 4 images
+    # Unsplash search endpoint (free, rate limited)
+    search_url = f"https://source.unsplash.com/featured/400x300/?{disease_name.replace(' ', ',')},medical"
+    
+    # Generate multiple image URLs with different random seeds
+    for i in range(4):
+        img_url = f"https://source.unsplash.com/featured/400x300?{i}&{disease_name.replace(' ', ',')},health,medical"
+        images.append(img_url)
+    
+    return images
 
 # ============================================
 # Load data and train model
@@ -200,8 +186,6 @@ def get_disease_overview(disease_name, symptoms_list, confidence):
     if not api_key:
         return None
     
-    import requests
-    
     url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
@@ -273,8 +257,6 @@ def get_home_remedies(disease_name):
     if not api_key:
         return None
     
-    import requests
-    
     url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
@@ -329,8 +311,6 @@ def get_diet_recommendations(disease_name):
     api_key = get_groq_api_key()
     if not api_key:
         return None
-    
-    import requests
     
     url = "https://api.groq.com/openai/v1/chat/completions"
     
@@ -387,8 +367,6 @@ def get_prevention_tips(disease_name):
     if not api_key:
         return None
     
-    import requests
-    
     url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
@@ -443,8 +421,6 @@ def get_exercise_guidelines(disease_name):
     api_key = get_groq_api_key()
     if not api_key:
         return None
-    
-    import requests
     
     url = "https://api.groq.com/openai/v1/chat/completions"
     
@@ -504,6 +480,7 @@ with st.spinner("🔄 Loading application..."):
 
 # Check if Groq API key is available
 groq_key_available = get_groq_api_key() is not None
+serpapi_key_available = get_serpapi_key() is not None
 
 # ============================================
 # UI - Simplified Sidebar
@@ -526,6 +503,12 @@ with st.sidebar:
     st.markdown("`cough, fever, runny_nose`")
     st.markdown("`headache, nausea, dizziness`")
     st.markdown("---")
+    
+    if serpapi_key_available:
+        st.success("✅ Image search ready")
+    else:
+        st.info("📸 Add SERPAPI_API_KEY for real disease images")
+    
     st.caption("⚠️ Educational purpose only")
 
 # Main input
@@ -573,24 +556,28 @@ if predict_clicked:
                 else:
                     st.metric("Confidence", f"{confidence:.0f}%", delta="Low")
                 
-                # Fetch and display disease images
-                with st.spinner(f"📸 Loading images for {predicted_disease}..."):
-                    disease_images = fetch_disease_images(predicted_disease)
-                    
-                    if disease_images:
-                        st.markdown("### 📸 Disease Images")
-                        st.markdown("*Images for reference only*")
+                # Fetch and display disease images dynamically
+                if serpapi_key_available:
+                    with st.spinner(f"📸 Searching images for {predicted_disease}..."):
+                        disease_images = fetch_disease_images_serpapi(predicted_disease)
                         
-                        # Display images in a grid (2x2 for 4 images)
-                        cols = st.columns(2)
-                        for idx, img_url in enumerate(disease_images[:4]):
-                            with cols[idx % 2]:
-                                try:
-                                    st.image(img_url, use_container_width=True)
-                                except Exception as img_error:
-                                    st.warning(f"Could not load image {idx + 1}")
-                    else:
-                        st.info("No images found for this condition")
+                        if disease_images:
+                            st.markdown("### 📸 Disease Images")
+                            st.markdown("*Real images from the internet*")
+                            
+                            # Display images in a grid
+                            cols = st.columns(2)
+                            for idx, img_url in enumerate(disease_images[:4]):
+                                with cols[idx % 2]:
+                                    try:
+                                        st.image(img_url, use_container_width=True, caption=f"Image {idx + 1}")
+                                    except Exception as img_error:
+                                        st.warning(f"Could not load image {idx + 1}")
+                        else:
+                            st.info("No images found. Try adding SERPAPI_API_KEY for better results.")
+                else:
+                    st.info("📸 **Add SERPAPI_API_KEY to secrets** to see real disease images from the internet")
+                    st.caption("Get your free API key from https://serpapi.com")
                 
                 st.markdown("---")
                 
