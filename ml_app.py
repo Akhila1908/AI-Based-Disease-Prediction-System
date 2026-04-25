@@ -20,14 +20,14 @@ import requests
 import json
 import os
 import time
-from PIL import Image
+import base64
 from io import BytesIO
 warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent
 
 # ============================================
-# Image Search using SerpAPI (Fixed Version)
+# Image Search using SerpAPI (Fixed)
 # ============================================
 
 def get_serpapi_key():
@@ -39,19 +39,20 @@ def get_serpapi_key():
 
 def fetch_images_serpapi(query, num_images=4):
     """
-    Fetch images using SerpAPI - CORRECTED VERSION
+    Fetch images using SerpAPI - Returns image URLs and thumbnails
     """
     SERP_API_KEY = get_serpapi_key()
     
     if not SERP_API_KEY:
-        return []
+        return [], []
     
     url = "https://serpapi.com/search.json"
     params = {
         "q": query,
         "tbm": "isch",
         "api_key": SERP_API_KEY,
-        "num": num_images
+        "num": num_images,
+        "ijn": 0
     }
     
     try:
@@ -61,20 +62,31 @@ def fetch_images_serpapi(query, num_images=4):
             data = response.json()
             images_results = data.get("images_results", [])
             
-            images = []
-            for img in images_results[:num_images]:
-                # Try to get original image, fallback to thumbnail
-                img_url = img.get("original") or img.get("thumbnail")
-                if img_url and not any(x in img_url.lower() for x in ['data:image', 'placeholder']):
-                    images.append(img_url)
+            original_urls = []
+            thumbnail_urls = []
             
-            return images
+            for img in images_results[:num_images]:
+                # Get both original and thumbnail URLs
+                original = img.get("original", "")
+                thumbnail = img.get("thumbnail", "")
+                
+                # Also try to get from other fields
+                if not original:
+                    original = img.get("src", "")
+                if not thumbnail:
+                    thumbnail = img.get("thumb", "")
+                
+                if original:
+                    original_urls.append(original)
+                if thumbnail:
+                    thumbnail_urls.append(thumbnail)
+            
+            return original_urls, thumbnail_urls
         else:
-            return []
+            return [], []
             
     except Exception as e:
-        st.error(f"SerpAPI Error: {str(e)[:100]}")
-        return []
+        return [], []
 
 def fetch_disease_images(disease_name):
     """
@@ -87,7 +99,7 @@ def fetch_disease_images(disease_name):
     
     # Try different search queries to get better images
     search_queries = [
-        f"{disease_name} medical condition",
+        f"{disease_name} medical",
         f"{disease_name} symptoms",
         f"{disease_name} disease"
     ]
@@ -99,24 +111,19 @@ def fetch_disease_images(disease_name):
         if len(all_images) >= 4:
             break
             
-        images = fetch_images_serpapi(query, 4)
+        original_urls, thumbnail_urls = fetch_images_serpapi(query, 3)
         
-        for img_url in images:
-            if img_url not in seen_urls and len(all_images) < 4:
-                all_images.append(img_url)
-                seen_urls.add(img_url)
+        # Try original URLs first, then thumbnails
+        for img_url in original_urls + thumbnail_urls:
+            if img_url and img_url not in seen_urls and len(all_images) < 4:
+                # Filter out invalid URLs
+                if not any(x in img_url.lower() for x in ['data:image', 'placeholder', 'base64']):
+                    all_images.append(img_url)
+                    seen_urls.add(img_url)
         
         time.sleep(0.5)  # Rate limiting
     
     return all_images
-
-# Function to test if image URL is accessible
-def is_image_accessible(url):
-    try:
-        response = requests.head(url, timeout=5)
-        return response.status_code == 200
-    except:
-        return False
 
 # ============================================
 # Load data and train model
@@ -523,6 +530,8 @@ with st.sidebar:
     
     if serpapi_key_available:
         st.success("✅ SerpAPI Ready")
+        # Show remaining credits info
+        st.caption("Fetching real images from Google")
     else:
         st.warning("⚠️ Add SERPAPI_API_KEY for images")
     
@@ -575,28 +584,26 @@ if predict_clicked:
                 
                 # Fetch and display disease images using SerpAPI
                 if serpapi_key_available:
-                    with st.spinner(f"📸 Searching images for {predicted_disease} on Google..."):
+                    with st.spinner(f"📸 Fetching images of {predicted_disease} from Google..."):
                         images = fetch_disease_images(predicted_disease)
                         
                         if images:
-                            st.markdown("### 📸 Real Images from Google")
-                            st.markdown(f"*Images related to {predicted_disease}*")
+                            st.markdown("### 📸 Disease Images from Google")
                             
-                            # Display images in a 2x2 grid with better error handling
+                            # Display images in a 2x2 grid
                             cols = st.columns(2)
                             for idx, img_url in enumerate(images[:4]):
                                 with cols[idx % 2]:
                                     try:
-                                        # Try to load and display image
-                                        st.image(img_url, use_container_width=True)
+                                        # Use a unique key for each image to avoid caching issues
+                                        st.image(img_url, use_container_width=True, caption=f"Image {idx + 1}")
                                     except Exception as img_error:
-                                        # If image fails, show a medical icon placeholder
-                                        st.markdown(f"**Image {idx + 1}**")
-                                        st.info(f"Medical reference image for {predicted_disease}")
+                                        # If direct display fails, try using HTML img tag
+                                        st.markdown(f'<img src="{img_url}" width="100%" style="border-radius: 10px;">', unsafe_allow_html=True)
                         else:
-                            st.info("No images found. Try a different disease or check your SerpAPI quota.")
+                            st.info("No images found. Try different symptoms or check API quota.")
                 else:
-                    st.info("📸 **Add SERPAPI_API_KEY to secrets to see real medical images**")
+                    st.info("📸 **Add SERPAPI_API_KEY to see real medical images**")
                     st.caption("Get your API key from https://serpapi.com (100 free searches/month)")
                 
                 st.markdown("---")
